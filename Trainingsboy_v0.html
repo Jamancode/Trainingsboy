@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏋️ Ultimate Fitness Tracker - Vollständige Implementierung v3.0</title>
+    <!-- Chart.js und der Date-Adapter werden für die Analyse-Diagramme per CDN geladen -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+    <style>
+        /* =================================================================== */
+        /*  CSS STYLING - wie vom Benutzer bereitgestellt, mit kleinen Anpassungen */
+        /* =================================================================== */
+
+        /* CSS Variables für Theming */
+        :root {
+            --primary: #2563eb; --primary-dark: #1d4ed8; --secondary: #10b981; --danger: #ef4444;
+            --warning: #f59e0b; --surface-bg: #f3f4f6; --surface-card: white; --text-primary: #111827;
+            --text-secondary: #6b7280; --border: #e5e7eb; --shadow: 0 1px 3px rgba(0,0,0,0.07);
+            --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+            --radius: 0.75rem; --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        [data-theme="dark"] {
+            --primary: #3b82f6; --primary-dark: #2563eb; --secondary: #34d399; --surface-bg: #0f172a;
+            --surface-card: #1e293b; --text-primary: #e2e8f0; --text-secondary: #94a3b8; --border: #334155;
+        }
+
+        /* Globale Stile & Resets */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: var(--surface-bg); color: var(--text-primary); line-height: 1.6; transition: background 0.3s, color 0.3s; }
+        
+        /* Layout-Komponenten */
+        .app-container { min-height: 100vh; display: flex; flex-direction: column; }
+        .header { background: color-mix(in srgb, var(--surface-card) 85%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); padding: 1rem 2rem; position: sticky; top: 0; z-index: 1000; }
+        .header-content { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+        .main-content { flex: 1; padding: 2rem; max-width: 1400px; margin: 0 auto; width: 100%; }
+        .section { display: none; animation: fadeIn 0.5s ease-out; }
+        .section.active { display: block; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; }
+        
+        /* Typografie */
+        h1, h2, h3 { color: var(--text-primary); margin-bottom: 0.5rem; letter-spacing: -0.02em; }
+        h1 { font-size: 2.5rem; font-weight: 800; }
+        h2 { font-size: 1.8rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; margin-top: 2.5rem; margin-bottom: 1.5rem; font-weight: 700; }
+        h3 { font-size: 1.25rem; font-weight: 600; }
+        p { margin-bottom: 1.25rem; color: var(--text-secondary); max-width: 70ch; }
+        
+        /* UI-Komponenten */
+        .logo { font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 0.75rem; }
+        .nav-tabs { display: flex; gap: 0.5rem; background: var(--surface-bg); padding: 0.25rem; border-radius: var(--radius); border: 1px solid var(--border); }
+        .nav-tab { padding: 0.5rem 1rem; background: transparent; border: none; color: var(--text-secondary); cursor: pointer; border-radius: 0.6rem; transition: var(--transition); font-weight: 600; font-size: 0.9rem; }
+        .nav-tab.active, .nav-tab:hover { background: var(--primary); color: white; box-shadow: var(--shadow); }
+        .theme-toggle { background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); cursor: pointer; font-size: 1.1rem; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: var(--transition); }
+        .theme-toggle:hover { transform: rotate(15deg) scale(1.1); box-shadow: var(--shadow-lg); }
+        .card, .stat-card, .mode-card, .suggestion-card { background: var(--surface-card); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); transition: var(--transition); }
+        .card:hover, .stat-card:hover, .mode-card:hover { transform: translateY(-5px); box-shadow: var(--shadow-lg); }
+        .stat-value { font-size: 2.5rem; font-weight: 700; color: var(--primary); line-height: 1.1; }
+        .stat-label { color: var(--text-secondary); font-size: 0.9rem; }
+        .btn { padding: 0.75rem 1.5rem; border: none; border-radius: 0.5rem; font-size: 1rem; font-weight: 600; cursor: pointer; transition: var(--transition); display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; text-decoration: none; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-dark); transform: translateY(-2px); box-shadow: var(--shadow); }
+        .btn-secondary { background: var(--secondary); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        button:disabled { background-color: var(--text-secondary); cursor: not-allowed; opacity: 0.7; }
+
+        /* Formulare */
+        .form-group { margin-bottom: 1.5rem; }
+        label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+        input, select, textarea { width: 100%; padding: 0.85rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface-bg); color: var(--text-primary); font-size: 1rem; transition: var(--transition); }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent); }
+        .input-group { display: flex; align-items: center; }
+        .input-group input { border-radius: 0.5rem 0 0 0.5rem; }
+        .input-group-text { padding: 0.85rem; background: var(--border); border: 1px solid var(--border); border-left: none; border-radius: 0 0.5rem 0.5rem 0;}
+
+        /* Modals */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .modal.active { display: flex; animation: fadeIn 0.3s; }
+        .modal-content { background: var(--surface-card); border-radius: var(--radius); padding: 2.5rem; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; animation: slideIn 0.3s ease-out; border: 1px solid var(--border); }
+        @keyframes slideIn { from { transform: translateY(-30px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+        
+        /* Drag & Drop */
+        .exercise-item { padding: 1rem; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 0.5rem; cursor: grab; transition: var(--transition); display: flex; justify-content: space-between; align-items: center; background: var(--surface-bg); }
+        .exercise-item:hover { background-color: var(--primary); color: white; transform: translateX(4px); }
+        .exercise-item.dragging { opacity: 0.4; transform: scale(1.05); box-shadow: var(--shadow-lg); }
+        .drop-zone { min-height: 200px; border: 2px dashed var(--border); border-radius: var(--radius); padding: 1rem; text-align: center; color: var(--text-secondary); transition: var(--transition); }
+        .drop-zone.drag-over { background: color-mix(in srgb, var(--primary) 10%, transparent); border-color: var(--primary); }
+
+        /* Spezifische Komponenten-Stile */
+        .mode-card { text-align: center; cursor: pointer; border: 2px solid var(--border); }
+        .mode-card.selected { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 40%, transparent); }
+        .mode-icon { font-size: 3rem; margin-bottom: 1rem; filter: grayscale(50%); transition: var(--transition); }
+        .mode-card.selected .mode-icon { filter: grayscale(0%); transform: scale(1.1); }
+        .suggestion-card { background: linear-gradient(135deg, var(--warning), #d97706); color: white; display: flex; align-items: center; gap: 1rem; }
+        .suggestion-icon { font-size: 2rem; }
+        .hydration-tracker { display: flex; gap: 0.5rem; align-items: center; padding: 1rem; background: linear-gradient(135deg, #3b82f6, #60a5fa); border-radius: var(--radius); color: white; flex-wrap: wrap;}
+        .water-glass { width: 30px; height: 40px; border: 2px solid white; border-radius: 0 0 5px 5px; position: relative; cursor: pointer; transition: var(--transition); }
+        .water-glass .water-fill { position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(255, 255, 255, 0.7); transition: height 0.3s; }
+        .intensity-meter { display: flex; gap: 0.35rem; align-items: center; padding: 0.5rem; height: 50px; }
+        .intensity-bar { width: 20px; height: 100%; background: var(--border); border-radius: 2px; transition: var(--transition); transform-origin: bottom; }
+        .heatmap-container { display: grid; grid-template-columns: repeat(26, 1fr); gap: 4px; }
+        .heatmap-cell { aspect-ratio: 1; background-color: var(--border); border-radius: 2px; transition: var(--transition); cursor: pointer; }
+        .heatmap-cell:hover { transform: scale(1.2); z-index: 10; position: relative; }
+        .heatmap-cell[data-intensity='1'] { background-color: color-mix(in srgb, var(--secondary) 25%, var(--surface-bg)); }
+        .heatmap-cell[data-intensity='2'] { background-color: color-mix(in srgb, var(--secondary) 60%, var(--surface-bg)); }
+        .heatmap-cell[data-intensity='3'] { background-color: var(--secondary); }
+        .muscle-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 1rem; }
+        .muscle-group { padding: 1rem; text-align: center; border: 2px solid var(--border); border-radius: var(--radius); transition: var(--transition); opacity: 0.6; }
+        .muscle-group.worked { opacity: 1; background: color-mix(in srgb, var(--secondary) 20%, transparent); font-weight: 600; }
+        .achievement { display: flex; align-items: center; gap: 1rem; padding: 1rem; background: linear-gradient(135deg, gold, darkorange); color: #333; border-radius: var(--radius); margin-bottom: 1rem; box-shadow: var(--shadow-lg); }
+        .achievement-icon { font-size: 2rem; }
+        .rest-timer-widget { position: fixed; bottom: 2rem; right: 2rem; background: var(--surface-card); padding: 1.5rem; border-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 1001; display: none; border: 1px solid var(--border); text-align: center; }
+        .rest-timer-widget.active { display: block; animation: slideInUp 0.3s ease-out; }
+        .breathing-circle { width: 150px; height: 150px; margin: 2rem auto; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; transition: transform 4s ease-in-out; }
+        #notification-container { position: fixed; bottom: 1rem; right: 1rem; z-index: 3000; display: flex; flex-direction: column; gap: 0.75rem; }
+        .toast { padding: 1rem 1.5rem; border-radius: 0.5rem; color: white; box-shadow: var(--shadow-lg); animation: toastIn 0.5s cubic-bezier(0.25, 1, 0.5, 1); min-width: 320px; display: flex; align-items: center; gap: 1rem; }
+        .toast-icon { font-size: 1.5rem; }
+        .toast.success { background: linear-gradient(135deg, var(--secondary), #059669); }
+        .toast.error { background: linear-gradient(135deg, var(--danger), #dc2626); }
+        .toast.info { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); }
+        
+        /* Animation Keyframes */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideInUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes toastIn { from { transform: translateX(120%); } to { transform: translateX(0); } }
+
+        /* Responsive Design */
+        @media (max-width: 768px) { .exercise-container, .mode-selector { grid-template-columns: 1fr; } .header-content { flex-direction: column; gap: 1rem; } .nav-tabs { flex-wrap: wrap; justify-content: center; } }
+    </style>
+</head>
+<body>
+    <div id="notification-container"></div>
+    <div class="app-container">
+        <!-- HEADER -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">💪 UFT</div>
+                <nav class="nav-tabs" id="main-nav"></nav>
+                <button id="themeToggle" class="theme-toggle" aria-label="Toggle Theme">🌙</button>
+            </div>
+        </header>
+
+        <!-- MAIN CONTENT -->
+        <main class="main-content" id="main-content-container">
+            <!-- Views will be dynamically rendered here -->
+        </main>
+    </div>
+
+    <!-- MODALS & WIDGETS -->
+    <div class="modal" id="formModal"><div class="modal-content" id="formModalContent"></div></div>
+    <div class="modal" id="planEditorModal"><div class="modal-content" id="planEditorModalContent" style="max-width: 1200px;"></div></div>
+    <div class="modal" id="workoutCompleteModal"><div class="modal-content" id="workoutCompleteModalContent"></div></div>
+    <div class="modal" id="breathingModal">
+        <div class="modal-content">
+            <h2>Fokus-Atmung</h2>
+            <p>Ein kurzer Moment der Konzentration vor dem nächsten schweren Satz.</p>
+            <div class="breathing-circle" id="breathing-circle"><span id="breathingText">Start...</span></div>
+            <button class="btn btn-primary" data-action="close-modal" data-modal-id="breathingModal">Fertig</button>
+        </div>
+    </div>
+    <div class="rest-timer-widget" id="restTimerWidget">
+        <h3>Pause</h3>
+        <div class="timer" id="widgetTimer">00:00</div>
+        <button class="btn btn-danger" data-action="skip-rest">Überspringen</button>
+    </div>
+
+    <script>
+    // ===================================================================
+    //  🏋️ ULTIMATE FITNESS TRACKER - COMPLETE IMPLEMENTATION v3.1
+    // ===================================================================
+    //  Author: KI-Modell, basierend auf der Analyse des Benutzers
+    //  Version: 3.1 (Comprehensive, Reactive, IndexedDB)
+    //  Line Count Target: >3000
+    // ===================================================================
+
+    const App = {
+        // Centralized application state, loaded asynchronously
+        state: {}, 
+        // Chart instances to prevent memory leaks
+        charts: {},
+        // Global timers
+        timers: { rest: null, breath: null, autosave: null },
+
+        // ===================================================================
+        // 1. CORE APP LIFECYCLE & INITIALIZATION
+        // ===================================================================
+
+        /**
+         * Initializes the application. This is the main entry point.
+         * It establishes a database connection, loads data, initializes UI components,
+         * attaches event listeners, and performs the first render.
+         */
+        async init() {
+            try {
+                // Establish DB connection first
+                await this.db.init();
+                // Load state from DB
+                this.state = await this.storage.load();
+                
+                this.ui.init();
+                this.addEventListeners();
+                this.render();
+
+                // Start the autosave interval
+                this.timers.autosave = setInterval(() => this.storage.save(this.state), 30000); // Autosave every 30 seconds
+                console.log("Ultimate Fitness Tracker Initialized. State:", this.state);
+            } catch (error) {
+                console.error("Critical error during app initialization:", error);
+                document.body.innerHTML = `<h1>Ein kritischer Fehler ist aufgetreten.</h1><p>Die App konnte nicht gestartet werden. Bitte versuchen Sie, die Anwendungsdaten in Ihrem Browser zu löschen oder kontaktieren Sie den Support. Fehler: ${error.message}</p>`;
+            }
+        },
+
+        /**
+         * The master render function. It orchestrates all UI updates based on the current app state.
+         * This function ensures the UI is always a reflection of the data.
+         */
+        render() {
+            this.ui.renderTheme();
+            this.ui.renderNav();
+            
+            // Route to the correct view renderer
+            const viewContainer = document.getElementById('main-content-container');
+            switch(this.state.ui.currentView) {
+                case 'dashboard': viewContainer.innerHTML = this.ui.renderDashboard(); break;
+                case 'plans': viewContainer.innerHTML = this.ui.renderPlans(); break;
+                case 'training': viewContainer.innerHTML = this.ui.renderTraining(); break;
+                case 'exercises': viewContainer.innerHTML = this.ui.renderExercises(); break;
+                case 'analytics': 
+                    viewContainer.innerHTML = this.ui.renderAnalyticsShell();
+                    // Charts need to be rendered after the shell is in the DOM
+                    setTimeout(() => this.ui.renderAnalyticsCharts(), 0);
+                    break;
+                case 'settings': viewContainer.innerHTML = this.ui.renderSettings(); break;
+            }
+        },
+
+        /**
+         * Attaches global, persistent event listeners using event delegation.
+         */
+        addEventListeners() {
+            const body = document.body;
+
+            // Main navigation and theme toggle
+            document.getElementById('main-nav').addEventListener('click', e => {
+                if (e.target.matches('[data-action="navigate"]')) {
+                    this.state.ui.currentView = e.target.dataset.view;
+                    this.render();
+                }
+            });
+            document.getElementById('themeToggle').addEventListener('click', () => {
+                this.state.ui.theme = this.state.ui.theme === 'light' ? 'dark' : 'light';
+                this.render();
+            });
+            
+            // Global click handler for actions
+            body.addEventListener('click', e => {
+                const actionTarget = e.target.closest('[data-action]');
+                if (!actionTarget) return;
+
+                const { action, ...data } = actionTarget.dataset;
+                
+                // A simple router for actions
+                switch(action) {
+                    case 'navigate':
+                        this.state.ui.currentView = data.view;
+                        this.render();
+                        break;
+                    case 'set-user-level':
+                        this.logic.user.setLevel(data.level, this.state);
+                        this.storage.save(this.state);
+                        this.render();
+                        break;
+                    case 'update-hydration':
+                        this.logic.user.updateHydration(parseInt(data.amount), this.state);
+                        this.storage.save(this.state);
+                        this.render();
+                        break;
+                    case 'show-exercise-form': this.ui.showExerciseForm(); break;
+                    case 'show-plan-form': this.ui.showPlanForm(); break;
+                    case 'show-plan-editor': this.ui.showPlanEditor(data.planId); break;
+                    case 'remove-exercise-from-plan': 
+                        this.logic.plans.removeExercise(data.planId, data.exId, this.state);
+                        this.ui.renderPlanEditorContent(data.planId);
+                        break;
+                    case 'start-session': this.logic.session.start(data.planId); break;
+                    case 'start-quick-set': this.logic.session.startQuickSet(); break;
+                    case 'perform-set': this.ui.handleSetCompletion(actionTarget); break;
+                    case 'next-exercise': this.logic.session.nextExercise(); break;
+                    case 'finish-session': this.logic.session.finish(); break;
+                    case 'skip-rest': this.logic.session.skipRest(); break;
+                    case 'save-settings': this.saveSettings(); break;
+                    case 'export-data': this.storage.export(); break;
+                    case 'import-data': document.getElementById('importFileInput').click(); break;
+                    case 'reset-data': this.resetData(); break;
+                    case 'close-modal': this.ui.closeModal(data.modalId); break;
+                }
+            });
+
+            // Global form submission handler
+            body.addEventListener('submit', e => {
+                const form = e.target;
+                if (form.matches('[data-form]')) {
+                    e.preventDefault();
+                    const formData = new FormData(form);
+                    const data = Object.fromEntries(formData.entries());
+                    
+                    switch(form.dataset.form) {
+                        case 'add-exercise':
+                            this.logic.exercises.create(data, this.state);
+                            this.ui.closeModal('formModal');
+                            this.ui.showToast('✅', 'Übung erstellt!', 'success');
+                            this.render();
+                            break;
+                        case 'add-plan':
+                            const plan = this.logic.plans.create(data, this.state);
+                            this.ui.closeModal('formModal');
+                            this.ui.showPlanEditor(plan.id);
+                            break;
+                    }
+                }
+            });
+
+            // Global input change handler (for live updates in plan editor)
+            body.addEventListener('change', e => {
+                const input = e.target;
+                if (input.matches('[data-update-plan-ex]')) {
+                    const { planId, exId, field } = input.dataset;
+                    this.logic.plans.updateExercise(planId, exId, field, input.value, this.state);
+                }
+            });
+
+             // Global Drag and Drop handlers
+            let draggedElementId = null;
+            body.addEventListener('dragstart', e => {
+                const target = e.target.closest('[data-drag-id]');
+                if (target) {
+                    draggedElementId = target.dataset.dragId;
+                    setTimeout(() => target.classList.add('dragging'), 0);
+                }
+            });
+            body.addEventListener('dragend', e => {
+                const target = e.target.closest('[data-drag-id]');
+                if (target) target.classList.remove('dragging');
+                draggedElementId = null;
+            });
+            body.addEventListener('dragover', e => {
+                if (e.target.closest('.drop-zone')) e.preventDefault();
+            });
+            body.addEventListener('drop', e => {
+                const dropZone = e.target.closest('.drop-zone');
+                if (!dropZone || !draggedElementId) return;
+                e.preventDefault();
+                const { dropAction, ...data } = dropZone.dataset;
+                
+                if (dropAction === "add-to-quick-set") {
+                    this.logic.session.addToQuickSet(draggedElementId, this.state);
+                    this.render();
+                } else if (dropAction === "add-to-plan") {
+                    this.logic.plans.addExercise(data.planId, draggedElementId, this.state);
+                    this.ui.renderPlanEditorContent(data.planId);
+                }
+            });
+
+            // Handle file input for import
+            const importInput = document.createElement('input');
+            importInput.type = 'file';
+            importInput.id = 'importFileInput';
+            importInput.style.display = 'none';
+            importInput.accept = '.json';
+            importInput.addEventListener('change', e => this.storage.import(e));
+            document.body.appendChild(importInput);
+            
+            // Save state before the user leaves the page
+            window.addEventListener('beforeunload', () => this.storage.save(this.state));
+        },
+
+        // ===================================================================
+        // 2. DATABASE (IndexedDB) & STORAGE MANAGEMENT
+        // ===================================================================
+
+        db: {
+            DB_NAME: 'UFT_DB',
+            DB_VERSION: 1,
+            db: null,
+
+            init() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+                    request.onerror = event => reject(`IndexedDB error: ${event.target.errorCode}`);
+                    request.onsuccess = event => {
+                        this.db = event.target.result;
+                        resolve(this.db);
+                    };
+                    request.onupgradeneeded = event => {
+                        const db = event.target.result;
+                        if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'id' });
+                        if (!db.objectStoreNames.contains('exercises')) db.createObjectStore('exercises', { keyPath: 'id' });
+                        if (!db.objectStoreNames.contains('plans')) db.createObjectStore('plans', { keyPath: 'id' });
+                        if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'startTime' });
+                    };
+                });
+            },
+            
+            get(storeName, key) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(storeName, 'readonly');
+                    const store = transaction.objectStore(storeName);
+                    const request = store.get(key);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = event => reject(event.target.error);
+                });
+            },
+
+            getAll(storeName) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(storeName, 'readonly');
+                    const store = transaction.objectStore(storeName);
+                    const request = store.getAll();
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = event => reject(event.target.error);
+                });
+            },
+            
+            put(storeName, data) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(storeName, 'readwrite');
+                    const store = transaction.objectStore(storeName);
+                    const request = store.put(data);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = event => reject(event.target.error);
+                    transaction.oncomplete = () => resolve();
+                });
+            },
+            
+            clear(storeName) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(storeName, 'readwrite');
+                    const store = transaction.objectStore(storeName);
+                    const request = store.clear();
+                    request.onsuccess = () => resolve();
+                    request.onerror = event => reject(event.target.error);
+                });
+            }
+        },
+
+        storage: {
+            /**
+             * Loads the application state from IndexedDB.
+             * @returns {Promise<object>} A promise that resolves with the application state.
+             */
+            async load() {
+                const [settings, exercises, plans, history] = await Promise.all([
+                    App.db.getAll('settings'),
+                    App.db.getAll('exercises'),
+                    App.db.getAll('plans'),
+                    App.db.getAll('history')
+                ]);
+
+                if (settings.length === 0) {
+                    return this.getInitialStateAndPersist();
+                }
+
+                const state = settings[0]; // Settings store holds the main state object
+                state.exercises = new Map(exercises.map(e => [e.id, e]));
+                state.plans = new Map(plans.map(p => [p.id, p]));
+                state.history = history;
+                state.achievements = new Set(state.achievements || []);
+
+                return state;
+            },
+
+            /**
+             * Saves the current application state to IndexedDB.
+             * @param {object} state - The current application state.
+             */
+            async save(state) {
+                if (!state || Object.keys(state).length === 0) return;
+                try {
+                    // Create a storable copy of the main state object
+                    const settingsToSave = { ...state, id: 'app_state' };
+                    delete settingsToSave.exercises;
+                    delete settingsToSave.plans;
+                    delete settingsToSave.history;
+                    settingsToSave.achievements = Array.from(settingsToSave.achievements || []);
+
+                    // Use Promise.all to save everything concurrently
+                    await Promise.all([
+                        App.db.put('settings', settingsToSave),
+                        ...Array.from(state.exercises.values()).map(ex => App.db.put('exercises', ex)),
+                        ...Array.from(state.plans.values()).map(p => App.db.put('plans', p)),
+                        // History is only added to, not re-saved in its entirety
+                    ]);
+                } catch (e) {
+                    console.error("Error saving state to IndexedDB:", e);
+                }
+            },
+
+            /**
+             * Creates and PERSISTS the default initial state for a new user.
+             * @returns {Promise<object>} The initial application state.
+             */
+            async getInitialStateAndPersist() {
+                App.ui.showToast("Willkommen! Beispieldaten werden für dich geladen.", "info");
+                const initialState = {
+                    user: { name: 'Athlet', level: 'intermediate', hydration: { goal: 8, current: 0 } },
+                    exercises: new Map(),
+                    plans: new Map(),
+                    history: [],
+                    achievements: new Set(),
+                    quickSet: [],
+                    ui: { currentView: 'dashboard', theme: 'dark' },
+                };
+
+                // Add sample exercises and plans to the state object
+                const ex1 = App.logic.exercises.create({ name: "Bankdrücken", muscleGroup: "chest", type: "compound" }, initialState);
+                const ex2 = App.logic.exercises.create({ name: "Kniebeugen", muscleGroup: "legs", type: "compound" }, initialState);
+                const ex3 = App.logic.exercises.create({ name: "Latzug", muscleGroup: "back", type: "compound" }, initialState);
+                const ex4 = App.logic.exercises.create({ name: "Seitheben", muscleGroup: "shoulders", type: "isolation" }, initialState);
+                App.logic.plans.create({
+                    name: "Ganzkörper A", description: "Ein solides Workout für den ganzen Körper.",
+                    exercises: [
+                        { id: ex2.id, sets: 3, reps: "5-8", rest: 120 },
+                        { id: ex1.id, sets: 3, reps: "5-8", rest: 120 },
+                        { id: ex3.id, sets: 3, reps: "8-12", rest: 90 },
+                    ]
+                }, initialState);
+                
+                // Persist this initial state to the database
+                await this.save(initialState);
+                return initialState;
+            },
+            
+            async export() {
+                try {
+                    const state = await this.load(); // Load the full current state
+                     // De-hydrate for export
+                    state.exercises = Array.from(state.exercises.entries());
+                    state.plans = Array.from(state.plans.entries());
+                    state.achievements = Array.from(state.achievements);
+                    const data = JSON.stringify(state, null, 2);
+                    const blob = new Blob([data], {type: 'application/json'});
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `uft-backup-${new Date().toISOString().slice(0,10)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(a.href);
+                    App.ui.showToast("Daten erfolgreich exportiert!", "success");
+                } catch (e) {
+                    App.ui.showToast("Export fehlgeschlagen!", "error");
+                    console.error(e);
+                }
+            },
+            
+            import(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async e => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        if(data.user && Array.isArray(data.exercises) && Array.isArray(data.plans)) {
+                            // Clear existing DB
+                            await Promise.all([
+                                App.db.clear('settings'),
+                                App.db.clear('exercises'),
+                                App.db.clear('plans'),
+                                App.db.clear('history'),
+                            ]);
+                            // Save new state
+                            await this.save(data);
+                            // Re-initialize app with new data
+                            await App.init(); 
+                            App.ui.showToast("Daten erfolgreich importiert!", "success");
+                        } else { throw new Error("Invalid file structure."); }
+                    } catch(err) { 
+                        App.ui.showToast("Ungültige oder korrupte Datendatei.", "error"); 
+                        console.error(err);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        },
+
+        // ===================================================================
+        // 3. BUSINESS LOGIC & SCIENTIFIC IMPLEMENTATION
+        // ===================================================================
+        
+        logic: {
+            /**
+             * Namespace for all user-related logic.
+             */
+            user: {
+                setLevel(level, state) {
+                    state.user.level = level;
+                    const levelName = { beginner: 'Anfänger', intermediate: 'Sportlich', expert: 'Experte' }[level];
+                    App.ui.showToast(`Trainingsmodus auf "${levelName}" gesetzt.`, "info");
+                },
+
+                updateHydration(amount, state) {
+                    state.user.hydration.current = Math.max(0, Math.min(state.user.hydration.goal, state.user.hydration.current + amount));
+                }
+            },
+            
+            /**
+             * Namespace for all exercise-related logic.
+             */
+            exercises: {
+                create(data, state) {
+                    const id = App.logic.utils.generateId('ex');
+                    const exercise = { 
+                        id, 
+                        history: [], 
+                        pr: { weight: 0, reps: 0 },
+                        ...data 
+                    };
+                    state.exercises.set(id, exercise);
+                    return exercise;
+                },
+            },
+        
+            /**
+             * Namespace for all plan-related logic.
+             */
+            plans: {
+                create(data, state) {
+                    const id = App.logic.utils.generateId('plan');
+                    const plan = { id, exercises: [], ...data };
+                    state.plans.set(id, plan);
+                    return plan;
+                },
+
+                addExercise(planId, exId, state) {
+                    const plan = state.plans.get(planId);
+                    if (plan && !plan.exercises.some(e => e.id === exId)) {
+                        plan.exercises.push({ id: exId, sets: 3, reps: '8-12', rest: 90 });
+                    }
+                },
+
+                removeExercise(planId, exId, state) {
+                    const plan = state.plans.get(planId);
+                    if (plan) plan.exercises = plan.exercises.filter(e => e.id !== exId);
+                },
+
+                updateExercise(planId, exId, field, value, state) {
+                    const plan = state.plans.get(planId);
+                    if (!plan) return;
+                    const exercise = plan.exercises.find(e => e.id === exId);
+                    if (exercise) {
+                        exercise[field] = (field === 'sets' || field === 'rest') ? parseInt(value, 10) : value;
+                    }
+                },
+            },
+            
+            /**
+             * Namespace for workout session management.
+             */
+            session: {
+                start(planId) {
+                    const plan = App.state.plans.get(planId);
+                    if (!plan || plan.exercises.length === 0) {
+                        App.ui.showToast("Dieser Plan hat keine Übungen!", "error");
+                        return;
+                    }
+                    App.state.session = {
+                        planId: plan.id,
+                        planName: plan.name,
+                        startTime: Date.now(),
+                        currentExIndex: 0,
+                        exercises: JSON.parse(JSON.stringify(plan.exercises)).map(ex => {
+                            const exData = App.state.exercises.get(ex.id);
+                            const targetWeight = App.logic.analytics.calculateNextTargetWeight(exData, ex.reps, App.state.user.level);
+                            return { ...ex, targetWeight, completedSets: [] };
+                        })
+                    };
+                    App.render();
+                },
+                
+                addToQuickSet(exId, state) {
+                    if (!state.quickSet.includes(exId)) state.quickSet.push(exId);
+                },
+
+                startQuickSet() {
+                    if (App.state.quickSet.length === 0) { 
+                        App.ui.showToast("Keine Übungen im Set.", "error"); 
+                        return; 
+                    }
+                    const quickPlan = {
+                        id: 'quick_set', name: 'Schnelles Set',
+                        exercises: App.state.quickSet.map(exId => ({ id: exId, sets: 3, reps: '8-12', rest: 90}))
+                    };
+                    App.state.plans.set('quick_set', quickPlan); // Temporarily add plan
+                    this.start('quick_set');
+                },
+        
+                performSet(exIndex, setIndex, setData) {
+                    const session = App.state.session;
+                    if (!session) return;
+                    const ex = session.exercises[exIndex];
+                    const setWithVolume = { ...setData, time: Date.now(), volume: setData.weight * setData.reps };
+                    ex.completedSets[setIndex] = setWithVolume;
+
+                    // Autoregulation
+                    const newTargetWeight = App.logic.analytics.calculateAutoregulatedWeight(ex.targetWeight, setData.rpe);
+                    if (newTargetWeight !== ex.targetWeight) {
+                        ex.targetWeight = newTargetWeight;
+                        App.ui.showToast(`💡 Gewicht für nächsten Satz auf ${newTargetWeight}kg angepasst.`, "info");
+                    }
+                    
+                    // Start Rest Timer with adjusted duration
+                    const restDuration = App.logic.analytics.calculateRestDuration(ex.rest, setData.rpe);
+                    App.ui.startRestTimer(restDuration);
+                    App.render();
+                },
+        
+                nextExercise() {
+                    const session = App.state.session;
+                    if (!session) return;
+                    if (session.currentExIndex < session.exercises.length - 1) {
+                        const lastEx = session.exercises[session.currentExIndex];
+                        const avgRpe = lastEx.completedSets.reduce((sum, s) => sum + s.rpe, 0) / lastEx.completedSets.length;
+                        if (avgRpe >= 8) { App.ui.showBreathingGuide(); }
+                        session.currentExIndex++;
+                        App.render();
+                    } else {
+                        this.finish();
+                    }
+                },
+                
+                skipRest() {
+                    clearInterval(App.timers.rest);
+                    App.ui.hideRestTimer();
+                },
+        
+                async finish() {
+                    const session = App.state.session;
+                    if (!session) return;
+                    session.endTime = Date.now();
+                    
+                    // Update exercise history and PRs
+                    for (const ex of session.exercises) {
+                        const mainEx = App.state.exercises.get(ex.id);
+                        if (mainEx) {
+                            mainEx.history.push(...ex.completedSets);
+                            ex.completedSets.forEach(set => {
+                               const currentPRWeight = mainEx.pr?.weight || 0;
+                               if (set.weight > currentPRWeight) {
+                                   mainEx.pr = { weight: set.weight, reps: set.reps };
+                                   if (!App.state.achievements.has('new_pr')) {
+                                       App.ui.showToast("🏆 Neuer persönlicher Rekord!", "success");
+                                       App.state.achievements.add('new_pr');
+                                   }
+                               }
+                            });
+                            await App.db.put('exercises', mainEx);
+                        }
+                    }
+                    
+                    // Add session to DB history and reset local state
+                    await App.db.put('history', session);
+                    App.state.history.push(session);
+                    App.state.session = null;
+                    
+                    // Cleanup quick set plan
+                    if(App.state.plans.has('quick_set')) App.state.plans.delete('quick_set');
+                    App.state.quickSet = [];
+                    
+                    App.ui.showWorkoutCompleteModal(session);
+                    await App.storage.save(App.state);
+                    App.render();
+                }
+            },
+            
+            /**
+             * Namespace for all analytics and scientific calculations.
+             */
+            analytics: {
+                calculateAutoregulatedWeight(currentWeightStr, rpe) {
+                    let newWeight = parseFloat(currentWeightStr);
+                    if (rpe >= 9) newWeight *= 0.95; // 5% reduction
+                    else if (rpe <= 6) newWeight *= 1.05; // 5% increase
+                    return newWeight.toFixed(1);
+                },
+
+                calculateRestDuration(baseRest, rpe) {
+                    let duration = baseRest;
+                    if (rpe > 8) duration += 30; // 30s bonus for RPE > 8
+                    return duration;
+                },
+
+                calculateNextTargetWeight(exerciseData, targetRepsStr, userLevel) {
+                    if (!exerciseData || exerciseData.history.length === 0) return 20;
+                    const targetReps = parseInt(String(targetRepsStr).split('-')[0]);
+                    const lastGoodSet = [...exerciseData.history]
+                        .filter(h => h.reps >= targetReps)
+                        .sort((a,b) => b.time - a.time)[0]; // Most recent good set
+                    
+                    if (!lastGoodSet) return exerciseData.pr.weight > 0 ? (exerciseData.pr.weight * 0.9).toFixed(1) : 20;
+
+                    const progressionRate = { beginner: 1.025, intermediate: 1.05, expert: 1.075 }[userLevel];
+                    return (lastGoodSet.weight * progressionRate).toFixed(1);
+                },
+
+                getDashboardStats(state) {
+                    const totalWorkouts = state.history.length;
+                    const totalVolume = state.history.reduce((sum, wo) => sum + this.getWorkoutVolume(wo), 0);
+                    const bestLift = Math.max(0, ...Array.from(state.exercises.values()).map(ex => ex.pr?.weight || 0));
+                    return { totalWorkouts, totalVolume, bestLift };
+                },
+
+                getWorkoutVolume(workout) {
+                    return workout.exercises.reduce((sum, ex) => sum + (ex.completedSets || []).reduce((s, set) => s + (set.weight * set.reps), 0), 0);
+                },
+
+                getWeeklyVolume(history) {
+                    const weeks = {};
+                    history.forEach(w => {
+                        const d = new Date(w.startTime);
+                        const weekStart = new Date(d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1))).toISOString().split('T')[0];
+                        if (!weeks[weekStart]) weeks[weekStart] = 0;
+                        weeks[weekStart] += this.getWorkoutVolume(w);
+                    });
+                    return Object.entries(weeks).sort((a, b) => new Date(a[0]) - new Date(b[0])).slice(-12);
+                },
+
+                getStrengthProgress(exercises) {
+                    const mainCompound = Array.from(exercises.values())
+                        .filter(ex => ex.type === 'compound' && ex.history.length > 2)
+                        .sort((a,b) => b.history.length - a.history.length)[0];
+
+                    if (!mainCompound) return null;
+
+                    const data = mainCompound.history.map(set => ({
+                        x: set.time,
+                        y: set.weight * (1 + set.reps / 30) // Epley 1RM estimation
+                    }));
+                    return { label: `Geschätztes 1RM (${mainCompound.name})`, data };
+                },
+
+                getHeatmapData(history) {
+                    const counts = {};
+                    const sixMonthsAgo = new Date();
+                    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                    history.forEach(w => {
+                        const d = new Date(w.startTime);
+                        if (d < sixMonthsAgo) return;
+                        const dateString = d.toISOString().split('T')[0];
+                        counts[dateString] = (counts[dateString] || 0) + 1;
+                    });
+                    return counts;
+                },
+
+                getMuscleFocus(history, exercises) {
+                    const focus = {};
+                    history.slice(-10).forEach(wo => {
+                        wo.exercises.forEach(ex => {
+                            const exData = exercises.get(ex.id);
+                            if (exData) {
+                                if (!focus[exData.muscleGroup]) focus[exData.muscleGroup] = 0;
+                                focus[exData.muscleGroup]++;
+                            }
+                        });
+                    });
+                    return focus;
+                }
+            },
+
+            /**
+             * Namespace for utility functions.
+             */
+            utils: {
+                generateId(prefix) {
+                    return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                }
+            }
+        },
+        
+        // ===================================================================
+        // 4. UI-DRIVING ACTIONS & EVENT HANDLERS
+        // ===================================================================
+
+        saveSettings() {
+            this.state.user.name = document.getElementById('userName').value;
+            this.state.user.level = document.getElementById('userLevel').value;
+            this.ui.showToast("✅", "Einstellungen gespeichert!", "success");
+            this.storage.save(this.state);
+            this.render();
+        },
+    
+        async resetData() {
+            if (confirm("Wirklich alle Daten löschen? Dies kann nicht rückgängig gemacht werden.")) {
+                await this.db.clear('settings');
+                await this.db.clear('exercises');
+                await this.db.clear('plans');
+                await this.db.clear('history');
+                this.state = await this.storage.getInitialStateAndPersist();
+                this.render();
+            }
+        },
+    
+        // ===================================================================
+        // 5. UI RENDERING & DOM MANIPULATION
+        // ===================================================================
+        
+        ui: {
+            init() {
+                // Populate static elements that don't change often
+                document.getElementById('main-nav').innerHTML = [
+                    { view: 'dashboard', label: 'Dashboard' },
+                    { view: 'plans', label: 'Pläne' },
+                    { view: 'training', label: 'Training' },
+                    { view: 'exercises', label: 'Übungen' },
+                    { view: 'analytics', label: 'Analyse' },
+                    { view: 'settings', label: 'Einstellungen' }
+                ].map(item => `<button class="nav-tab" data-action="navigate" data-view="${item.view}">${item.label}</button>`).join('');
+            },
+    
+            renderTheme() {
+                document.documentElement.dataset.theme = App.state.ui.theme;
+                document.getElementById('themeToggle').textContent = App.state.ui.theme === 'light' ? '🌙' : '☀️';
+            },
+            
+            renderNav() {
+                document.querySelectorAll('#main-nav .nav-tab').forEach(tab => {
+                    tab.classList.toggle('active', tab.dataset.view === App.state.ui.currentView);
+                });
+            },
+            
+            renderDashboard() {
+                const { user, history, plans } = App.state;
+                const stats = App.logic.analytics.getDashboardStats(App.state);
+                const lastWo = history[history.length - 1];
+                let suggestionHTML = `<div class="suggestion-card"><div class="suggestion-icon">💡</div><div><h3>Bereit fürs Training!</h3><p>Wähle einen Plan, um loszulegen und deine Fitness-Reise zu starten.</p></div></div>`;
+                if(lastWo && (Date.now() - lastWo.startTime) / 36e5 < 24) {
+                    suggestionHTML = `<div class="suggestion-card" style="background: linear-gradient(135deg, #1d4ed8, #3b82f6);"><div class="suggestion-icon">🧘</div><div><h3>Erholungstag!</h3><p>Dein letztes Training ist weniger als 24h her. Gönn dir eine Pause für optimale Regeneration.</p></div></div>`;
+                }
+
+                return `
+                    <section id="dashboard" class="section active">
+                        <h1>Willkommen, ${user.name}!</h1>
+                        <div class="mode-selector">
+                            ${Object.entries({ beginner: '🌱 Anfänger', intermediate: '🎯 Sportlich', expert: '🚀 Experte'}).map(([key, val]) =>
+                                `<div class="mode-card ${user.level === key ? 'selected' : ''}" data-action="set-user-level" data-level="${key}">
+                                    <div class="mode-icon">${val.split(' ')[0]}</div><h3>${val.split(' ')[1]}</h3>
+                                </div>`
+                            ).join('')}
+                        </div>
+                        ${suggestionHTML}
+                        <div class="dashboard-grid">
+                            <div class="stat-card"><div class="stat-value">${stats.totalWorkouts}</div><div class="stat-label">Workouts Gesamt</div></div>
+                            <div class="stat-card"><div class="stat-value">${stats.totalVolume.toLocaleString()}</div><div class="stat-label">Volumen Gesamt (kg)</div></div>
+                            <div class="stat-card"><div class="stat-value">${stats.bestLift} kg</div><div class="stat-label">Bester Lift (PR)</div></div>
+                        </div>
+                        <div class="grid" style="grid-template-columns: 2fr 1fr;">
+                            <div>
+                                <h2>Letzte Trainingseinheiten</h2>
+                                <div class="card">${history.length > 0 ? `<ul>${[...history].reverse().slice(0,5).map(wo => `<li><strong>${new Date(wo.startTime).toLocaleDateString()}:</strong> ${plans.get(wo.planId)?.name || 'Gelöschter Plan'}</li>`).join('')}</ul>` : '<p>Keine Einträge.</p>'}</div>
+                            </div>
+                            <div>
+                                <h2>Hydration</h2>
+                                <div class="hydration-tracker">
+                                    <h3>Heute:</h3>
+                                    ${Array.from({length: user.hydration.goal}, (_, i) => 
+                                        `<div class="water-glass" data-action="update-hydration" data-amount="${i < user.hydration.current ? -1 : 1}">
+                                            <div class="water-fill" style="height:${i < user.hydration.current ? '100%' : '0%'}"></div>
+                                        </div>`
+                                    ).join('')}
+                                    <span>${user.hydration.current}/${user.hydration.goal}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <h2>Schnellstart</h2>
+                        <div class="grid">
+                            ${Array.from(plans.values()).map(p => `<button class="btn btn-primary" data-action="start-session" data-plan-id="${p.id}">Start: ${p.name}</button>`).join('') || '<p>Erstelle einen Plan, um hier Schnellstarts zu sehen.</p>'}
+                        </div>
+                    </section>
+                `;
+            },
+            
+            renderExercises() {
+                return `
+                    <section id="exercises" class="section active">
+                        <h1>Übungsverwaltung</h1>
+                        <div class="exercise-container">
+                            <div class="exercise-list">
+                                <h2>Alle Übungen</h2>
+                                <button class="btn btn-primary" data-action="show-exercise-form">+ Neue Übung</button>
+                                <div class="grid" style="margin-top: 1rem;">
+                                    ${Array.from(App.state.exercises.values()).map(ex => `
+                                        <div class="exercise-item" draggable="true" data-drag-id="${ex.id}">
+                                            <span>${ex.name}</span>
+                                            <small>${ex.muscleGroup}</small>
+                                        </div>`).join('') || '<p>Keine Übungen erstellt.</p>'}
+                                </div>
+                            </div>
+                            <div class="plan-builder">
+                                <h2>Schnelles Set erstellen</h2>
+                                <p>Ziehe Übungen hierher, um ein schnelles, nicht gespeichertes Training zu erstellen.</p>
+                                <div class="drop-zone" data-drop-action="add-to-quick-set">
+                                    ${App.state.quickSet.map(exId => {
+                                        const ex = App.state.exercises.get(exId);
+                                        return `<div class="exercise-item" data-id="${ex.id}">${ex.name}</div>`;
+                                    }).join('') || '<p>Hier ablegen</p>'}
+                                </div>
+                                <button class="btn btn-secondary" data-action="start-quick-set">Dieses Set starten</button>
+                            </div>
+                        </div>
+                    </section>
+                `;
+            },
+            
+            renderPlans() {
+                 return `
+                    <section id="plans" class="section active">
+                        <h1>Trainingspläne</h1>
+                        <button class="btn btn-primary" data-action="show-plan-form">+ Neuer Trainingsplan</button>
+                        <div class="grid" style="margin-top: 1rem;">
+                            ${Array.from(App.state.plans.values()).map(p => `
+                                <div class="card">
+                                    <h3>${p.name}</h3>
+                                    <p>${p.description || 'Keine Beschreibung.'}</p>
+                                    <p><strong>${p.exercises.length} Übungen</strong></p>
+                                    <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+                                        <button class="btn btn-primary" data-action="start-session" data-plan-id="${p.id}">Starten</button>
+                                        <button class="btn" style="background:var(--text-secondary); color:white;" data-action="show-plan-editor" data-plan-id="${p.id}">Bearbeiten</button>
+                                    </div>
+                                </div>`).join('') || '<p>Keine Pläne erstellt.</p>'}
+                        </div>
+                    </section>`;
+            },
+            
+            renderTraining() {
+                const session = App.state.session;
+                if (!session) {
+                    return `
+                        <section id="training" class="section active">
+                            <h1>Training</h1>
+                            <h2>Wähle einen Plan zum Starten</h2>
+                            <div class="grid">
+                               ${Array.from(App.state.plans.values()).map(p => `<button class="btn btn-primary" style="height:80px;" data-action="start-session" data-plan-id="${p.id}">${p.name}</button>`).join('') || '<p>Erstelle zuerst einen Plan.</p>'}
+                            </div>
+                        </section>`;
+                }
+                
+                const ex = session.exercises[session.currentExIndex];
+                const exData = App.state.exercises.get(ex.id);
+                const lastSet = ex.completedSets[ex.completedSets.length - 1];
+                
+                return `
+                    <section id="training" class="section active">
+                        <div class="session-container">
+                            <h2>${exData.name} <span style="font-weight:normal;color:var(--text-secondary)">(${session.currentExIndex+1}/${session.exercises.length})</span></h2>
+                            <p><strong>Ziel:</strong> ${ex.sets} Sätze à ${ex.reps} Wdh. | <strong>Pause:</strong> ${ex.rest}s</p>
+                            <div>
+                                ${Array.from({length: ex.sets}, (_, i) => {
+                                    const set = ex.completedSets[i];
+                                    return `<div class="exercise-set ${set ? 'completed' : ''}">
+                                        <div class="set-number">${i+1}</div>
+                                        <input type="number" step="0.5" placeholder="kg" value="${set ? set.weight : ex.targetWeight}">
+                                        <input type="number" placeholder="Wdh" value="${set?.reps || ''}">
+                                        <input type="number" min="1" max="10" placeholder="RPE" value="${set?.rpe || ''}">
+                                        ${set ? `<span class="btn" style="background:var(--secondary); color:white; padding: 0.5rem; font-size: 0.8rem; cursor:default;">${set.volume.toFixed(0)}kg</span>` : `<button class="btn btn-secondary" style="padding:0.5rem" data-action="perform-set" data-ex-index="${session.currentExIndex}" data-set-index="${i}">✓</button>`}
+                                    </div>`;
+                                }).join('')}
+                            </div>
+                            <div style="margin-top: 1rem;">
+                                <h3>Intensität (RPE des letzten Satzes)</h3>
+                                <div class="intensity-meter">
+                                    ${Array.from({length: 10}, (_, i) => {
+                                        let activeClass = '';
+                                        if (lastSet && (i + 1) <= lastSet.rpe) {
+                                            if (lastSet.rpe > 8) activeClass = 'active-high';
+                                            else if (lastSet.rpe > 6) activeClass = 'active-mid';
+                                            else activeClass = 'active-low';
+                                        }
+                                        return `<div class="intensity-bar ${activeClass}" style="height: ${20 + (i+1)*2}px; background:${activeClass ? `var(--${activeClass.split('-')[1]})` : ''};"></div>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                            <div style="margin-top: 1.5rem; display: flex; justify-content: space-between;">
+                                <button class="btn btn-danger" data-action="finish-session">Training beenden</button>
+                                <button class="btn btn-primary" data-action="next-exercise">Nächste Übung →</button>
+                            </div>
+                        </div>
+                    </section>`;
+            },
+
+            renderAnalyticsShell() {
+                return `
+                    <section id="analytics" class="section active">
+                        <h1>Trainingsanalysen</h1>
+                        <div id="analytics-content">
+                            ${App.state.history.length < 1 ? "<p>Noch keine Daten vorhanden. Absolviere ein Training, um deine Fortschritte zu sehen.</p>" : `
+                                <div class="grid">
+                                    <div class="chart-container card"><canvas id="volumeChart"></canvas></div>
+                                    <div class="chart-container card"><canvas id="strengthChart"></canvas></div>
+                                </div>
+                                <div class="grid" style="grid-template-columns: 2fr 1fr;">
+                                    <div>
+                                        <h2>Trainings-Heatmap (Letztes Halbjahr)</h2>
+                                        <div class="heatmap-container card" id="trainingHeatmap"></div>
+                                    </div>
+                                    <div>
+                                        <h2>Muskel-Fokus (Letzte 10 Workouts)</h2>
+                                        <div class="muscle-map card" id="muscle-map"></div>
+                                    </div>
+                                </div>
+                                <h2>Errungenschaften</h2>
+                                <div id="achievements-container"></div>
+                            `}
+                        </div>
+                    </section>`;
+            },
+            
+            renderAnalyticsCharts() {
+                const { history, exercises } = App.state;
+                if (history.length < 1) return;
+
+                // Volume Chart
+                const weeklyVolume = App.logic.analytics.getWeeklyVolume(history);
+                this.createOrUpdateChart('volumeChart', 'bar', {
+                    labels: weeklyVolume.map(w => w[0]),
+                    datasets: [{ label: 'Wöchentliches Volumen (kg)', data: weeklyVolume.map(w => w[1]), backgroundColor: 'rgba(59, 130, 246, 0.7)' }]
+                });
+
+                // Strength Chart
+                const strengthProgress = App.logic.analytics.getStrengthProgress(exercises);
+                if (strengthProgress) {
+                    this.createOrUpdateChart('strengthChart', 'line', {
+                        datasets: [{ label: strengthProgress.label, data: strengthProgress.data, borderColor: 'rgba(239, 68, 68, 0.8)', tension: 0.1, pointRadius: 4, pointBackgroundColor: 'rgba(239, 68, 68, 1)' }]
+                    }, { scales: { x: { type: 'time', time: { unit: 'week' } } } });
+                }
+
+                // Heatmap
+                const heatmapData = App.logic.analytics.getHeatmapData(history);
+                const heatmap = document.getElementById('trainingHeatmap');
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - (26*7) + 1);
+                for(let i=0; i<26*7; i++) {
+                    const d = new Date(startDate);
+                    d.setDate(d.getDate() + i);
+                    const dateString = d.toISOString().split('T')[0];
+                    const intensity = Math.min(3, heatmapData[dateString] || 0);
+                    heatmap.innerHTML += `<div class="heatmap-cell" data-intensity="${intensity}" title="${d.toLocaleDateString()}: ${heatmapData[dateString] || 0} Workouts"></div>`;
+                }
+                
+                // Muscle Focus
+                const muscleFocus = App.logic.analytics.getMuscleFocus(history, exercises);
+                const muscleGroups = {chest: 'Brust', back: 'Rücken', legs: 'Beine', shoulders: 'Schultern', triceps: 'Trizeps', biceps: 'Bizeps', core: 'Core'};
+                document.getElementById('muscle-map').innerHTML = Object.entries(muscleGroups).map(([key, name]) => 
+                    `<div class="muscle-group ${muscleFocus[key] ? 'worked' : ''}">${name}</div>`
+                ).join('');
+                
+                // Achievements
+                document.getElementById('achievements-container').innerHTML = App.state.achievements.has('new_pr') ? `<div class="achievement"><div class="achievement-icon">🏆</div><div><h3>Persönlicher Rekord!</h3><p>Fantastisch! Du hast einen neuen persönlichen Rekord aufgestellt!</p></div></div>` : '<p>Noch keine neuen Errungenschaften freigeschaltet. Bleib dran!</p>';
+            },
+            
+            renderSettings() {
+                const userLevels = { beginner: "Anfänger", intermediate: "Sportlich", expert: "Experte" };
+                return `
+                    <section id="settings" class="section active">
+                        <h1>Einstellungen</h1>
+                        <div class="grid">
+                            <div class="card">
+                                <h3>Profil</h3>
+                                <div class="form-group"><label for="userName">Benutzername</label><input type="text" id="userName" value="${App.state.user.name}"></div>
+                                <div class="form-group"><label>Trainingslevel</label><select id="userLevel">${Object.entries(userLevels).map(([k,v])=>`<option value="${k}" ${App.state.user.level === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+                                <button class="btn btn-primary" data-action="save-settings">Speichern</button>
+                            </div>
+                            <div class="card">
+                                <h3>Datenmanagement</h3>
+                                <div class="grid" style="grid-template-columns: 1fr 1fr;">
+                                    <button class="btn btn-secondary" data-action="export-data">Daten exportieren</button>
+                                    <button class="btn" style="background:#555;color:white" data-action="import-data">Daten importieren</button>
+                                    <button class="btn btn-danger" data-action="reset-data">Alle Daten löschen</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>`;
+            },
+            
+            // --- UI Helper & Action Functions ---
+            
+            handleSetCompletion(button) {
+                const setRow = button.closest('.exercise-set');
+                const inputs = setRow.querySelectorAll('input');
+                const [weight, reps, rpe] = Array.from(inputs).map(i => parseFloat(i.value));
+                if (isNaN(weight) || isNaN(reps) || isNaN(rpe)) {
+                    this.showToast("❌", "Bitte alle Felder (Gewicht, Wdh, RPE) ausfüllen.", "error");
+                    return;
+                }
+                const { exIndex, setIndex } = button.dataset;
+                button.disabled = true;
+                App.logic.session.performSet(parseInt(exIndex), parseInt(setIndex), { weight, reps, rpe });
+            },
+
+            showExerciseForm() {
+                document.getElementById('formModalContent').innerHTML = `
+                    <h2>Neue Übung</h2>
+                    <form data-form="add-exercise">
+                        <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
+                        <div class="form-group"><label>Muskelgruppe</label><select name="muscleGroup">${Object.entries({chest: 'Brust', back: 'Rücken', legs: 'Beine', shoulders: 'Schultern', triceps: 'Trizeps', biceps: 'Bizeps', core: 'Core'}).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+                        <div class="form-group"><label>Typ</label><select name="type"><option value="compound">Verbund</option><option value="isolation">Isolation</option></select></div>
+                        <button type="submit" class="btn btn-primary">Erstellen</button>
+                    </form>`;
+                this.showModal('formModal');
+            },
+
+            showPlanForm() {
+                document.getElementById('formModalContent').innerHTML = `
+                    <h2>Neuer Plan</h2>
+                    <form data-form="add-plan">
+                        <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
+                        <div class="form-group"><label>Beschreibung</label><textarea name="description"></textarea></div>
+                        <button type="submit" class="btn btn-primary">Erstellen & Bearbeiten</button>
+                    </form>`;
+                this.showModal('formModal');
+            },
+            
+            showPlanEditor(planId) {
+                this.renderPlanEditorContent(planId);
+                this.showModal('planEditorModal');
+            },
+
+            renderPlanEditorContent(planId) {
+                const plan = App.state.plans.get(planId);
+                document.getElementById('planEditorModalContent').innerHTML = `
+                    <h2>Plan bearbeiten: ${plan.name}</h2>
+                    <div class="exercise-container">
+                        <div class="exercise-list">
+                            <h3>Übungen</h3>
+                            ${Array.from(App.state.exercises.values()).map(ex => `<div class="exercise-item" draggable="true" data-drag-id="${ex.id}">${ex.name}</div>`).join('')}
+                        </div>
+                        <div class="drop-zone" data-drop-action="add-to-plan" data-plan-id="${plan.id}">
+                            ${plan.exercises.map(ex => {
+                                const exData = App.state.exercises.get(ex.id);
+                                return `<div class="exercise-item" data-id="${ex.id}">
+                                    <span>${exData.name}</span>
+                                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                                        <input type="number" value="${ex.sets}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="sets" style="width: 60px;"> S
+                                        <input type="text" value="${ex.reps}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="reps" style="width: 80px;"> Wdh
+                                        <button class="btn btn-danger" style="padding:0.2rem 0.4rem" data-action="remove-exercise-from-plan" data-plan-id="${plan.id}" data-ex-id="${ex.id}">X</button>
+                                    </div>
+                                </div>`;
+                            }).join('') || '<p>Übungen hier ablegen</p>'}
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="margin-top:1rem" data-action="close-modal" data-modal-id="planEditorModal">Fertig</button>`;
+            },
+
+            showWorkoutCompleteModal(session) {
+                const volume = App.logic.analytics.getWorkoutVolume(session);
+                document.getElementById('workoutCompleteModalContent').innerHTML = `
+                    <h2>🎉 Training Abgeschlossen!</h2>
+                    <p>Starke Leistung! Hier ist deine Zusammenfassung:</p>
+                    <p><strong>Dauer:</strong> ${((session.endTime - session.startTime)/60000).toFixed(0)} Min</p>
+                    <p><strong>Gesamtvolumen:</strong> ${volume.toLocaleString()} kg</p>
+                    <button class="btn btn-primary" data-action="close-modal" data-modal-id="workoutCompleteModal">Super!</button>`;
+                this.showModal('workoutCompleteModal');
+            },
+
+            showModal(id) { document.getElementById(id).classList.add('active'); },
+            closeModal(id) { 
+                if(id === 'breathingModal') clearTimeout(App.timers.breath);
+                document.getElementById(id).classList.remove('active'); 
+            },
+
+            showToast(icon, message, type) {
+                const toast = document.createElement('div');
+                toast.className = `toast ${type}`;
+                toast.innerHTML = `<span class="toast-icon">${icon}</span> <span>${message}</span>`;
+                document.getElementById('notification-container').appendChild(toast);
+                setTimeout(() => toast.remove(), 4000);
+            },
+            
+            startRestTimer(duration) {
+                clearInterval(App.timers.rest);
+                const timerWidget = document.getElementById('restTimerWidget');
+                const timerDisplay = document.getElementById('widgetTimer');
+                timerWidget.classList.add('active');
+                let remaining = duration;
+                
+                const update = () => timerDisplay.textContent = `${String(Math.floor(remaining/60)).padStart(2,'0')}:${String(remaining%60).padStart(2,'0')}`;
+                update();
+                
+                App.timers.rest = setInterval(() => {
+                    remaining--;
+                    update();
+                    if (remaining < 0) {
+                        this.hideRestTimer();
+                        this.showToast("✅", "Pause beendet!", "success");
+                    }
+                }, 1000);
+            },
+
+            hideRestTimer() {
+                clearInterval(App.timers.rest);
+                document.getElementById('restTimerWidget').classList.remove('active');
+            },
+            
+            showBreathingGuide() {
+                this.showModal('breathingModal');
+                clearTimeout(App.timers.breath);
+                const circle = document.getElementById('breathing-circle');
+                const text = document.getElementById('breathingText');
+                
+                const cycle = () => {
+                    if (!document.getElementById('breathingModal').classList.contains('active')) return;
+                    text.textContent = "Einatmen...";
+                    circle.style.transform = 'scale(1.2)';
+                    App.timers.breath = setTimeout(() => {
+                        text.textContent = "Halten...";
+                        App.timers.breath = setTimeout(() => {
+                            text.textContent = "Ausatmen...";
+                            circle.style.transform = 'scale(1)';
+                            App.timers.breath = setTimeout(() => {
+                                text.textContent = "Halten...";
+                                App.timers.breath = setTimeout(cycle, 2000);
+                            }, 4000);
+                        }, 2000);
+                    }, 4000);
+                };
+                cycle();
+            },
+            
+            createOrUpdateChart(id, type, data, options = {}) {
+                const canvas = document.getElementById(id);
+                if (!canvas) return;
+                if (App.charts[id]) App.charts[id].destroy();
+                App.charts[id] = new Chart(canvas.getContext('2d'), { type, data, options: {
+                    responsive: true, maintainAspectRatio: false, ...options
+                }});
+            }
+        }
+    };
+    
+    // Start the application once the DOM is ready.
+    document.addEventListener('DOMContentLoaded', () => App.init());
+    
+    </script>
+</body>
+</html>
