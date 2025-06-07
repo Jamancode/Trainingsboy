@@ -437,6 +437,7 @@
                         if (!db.objectStoreNames.contains('plans')) db.createObjectStore('plans', { keyPath: 'id' });
                         if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'startTime' });
                         if (!db.objectStoreNames.contains('exerciseSets')) db.createObjectStore('exerciseSets', { keyPath: 'id' }); // 1. DB Schema Update
+                        if (!db.objectStoreNames.contains('equipment')) db.createObjectStore('equipment', { keyPath: 'id' });
                     };
                 });
             },
@@ -500,12 +501,13 @@
              * @returns {Promise<object>} A promise that resolves with the application state.
              */
             async load() {
-                const [settings, exercises, plans, history, exerciseSetsData] = await Promise.all([ // 4. Storage Load
+                const [settings, exercises, plans, history, exerciseSetsData, equipmentData] = await Promise.all([ // 4. Storage Load
                     App.db.getAll('settings'),
                     App.db.getAll('exercises'),
                     App.db.getAll('plans'),
                     App.db.getAll('history'),
-                    App.db.getAll('exerciseSets') // Load exercise sets
+                    App.db.getAll('exerciseSets'), // Load exercise sets
+                    App.db.getAll('equipment') // Fetch equipment data
                 ]);
 
                 if (settings.length === 0) {
@@ -516,13 +518,24 @@
                 state.exercises = new Map(exercises.map(e => [e.id, e]));
                 state.plans = new Map(plans.map(p => [p.id, p]));
                 state.exerciseSets = new Map(exerciseSetsData.map(s => [s.id, s])); // Reconstruct Map
+                state.equipment = new Map(equipmentData.map(item => [item.id, item])); // Reconstruct Map for equipment
                 state.history = history;
                 state.achievements = new Set(state.achievements || []);
 
-                // Initialize trainingMetrics if missing from older data
+                // Initialize parts of state if they are missing (backward compatibility)
+                if (!state.user) state.user = { name: 'Athlet', level: 'intermediate', hydration: { goal: 8, current: 0 } };
+                if (!state.exercises) state.exercises = new Map();
+                if (!state.plans) state.plans = new Map();
+                // history is already assigned
+                // achievements is already assigned and ensured to be a Set
+                if (!state.quickSet) state.quickSet = [];
+                if (!state.exerciseSets) state.exerciseSets = new Map();
+                if (!state.equipment) state.equipment = new Map(); // Added for equipment
                 if (!state.trainingMetrics) {
                     state.trainingMetrics = { volumeLoad: 0, intensityIndex: 0, fatigueLevel: 0, recoveryScore: 100, performanceIndex: 100 };
                 }
+                if (!state.ui) state.ui = { currentView: 'dashboard', theme: 'dark' };
+
 
                 return state;
             },
@@ -540,6 +553,7 @@
                     delete settingsToSave.plans;
                     delete settingsToSave.history;
                     delete settingsToSave.exerciseSets; // Ensure exerciseSets Map is not saved in settings object
+                    delete settingsToSave.equipment; // Ensure equipment Map is not saved in settings object
                     settingsToSave.achievements = Array.from(settingsToSave.achievements || []);
 
                     // Use Promise.all to save everything concurrently
@@ -548,6 +562,7 @@
                         ...Array.from(state.exercises.values()).map(ex => App.db.put('exercises', ex)),
                         ...Array.from(state.plans.values()).map(p => App.db.put('plans', p)),
                         ...Array.from(state.exerciseSets.values()).map(set => App.db.put('exerciseSets', set)), // 3. Storage Save
+                        ...Array.from(state.equipment.values()).map(item => App.db.put('equipment', item)),
                         // History is only added to, not re-saved in its entirety
                     ]);
                 } catch (e) {
@@ -569,6 +584,7 @@
                     achievements: new Set(),
                     quickSet: [],
                     exerciseSets: new Map(), // 2. State Initialization
+                    equipment: new Map(),
                     trainingMetrics: { volumeLoad: 0, intensityIndex: 0, fatigueLevel: 0, recoveryScore: 100, performanceIndex: 100 },
                     ui: { currentView: 'dashboard', theme: 'dark' },
                 };
@@ -825,6 +841,17 @@
                         return true;
                     }
                     return false;
+                }
+            },
+
+            equipmentManager: {
+                async create(nameString, descriptionString, state) {
+                    const id = App.logic.utils.generateId('eqp');
+                    const newEquipment = { id, name: nameString, description: descriptionString || '' };
+                    state.equipment.set(id, newEquipment);
+                    await App.db.put('equipment', newEquipment);
+                    // Implementation will be in subsequent micro-steps
+                    return null;
                 }
             },
         
