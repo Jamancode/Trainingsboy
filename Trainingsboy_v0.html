@@ -419,7 +419,7 @@
 
         db: {
             DB_NAME: 'UFT_DB',
-            DB_VERSION: 1,
+            DB_VERSION: 3,
             db: null,
 
             init() {
@@ -850,6 +850,12 @@
                     const newEquipment = { id, name: nameString, description: descriptionString || '' };
                     state.equipment.set(id, newEquipment);
                     await App.db.put('equipment', newEquipment);
+                    return newEquipment;
+                },
+                get(equipmentId, state) {
+                    return state.equipment.get(equipmentId);
+                },
+                async update(equipmentId, nameString, descriptionString, state) {
                     // Implementation will be in subsequent micro-steps
                     return null;
                 }
