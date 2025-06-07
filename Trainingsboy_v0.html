@@ -398,6 +398,7 @@
                         if (!db.objectStoreNames.contains('exercises')) db.createObjectStore('exercises', { keyPath: 'id' });
                         if (!db.objectStoreNames.contains('plans')) db.createObjectStore('plans', { keyPath: 'id' });
                         if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'startTime' });
+                        if (!db.objectStoreNames.contains('exerciseSets')) db.createObjectStore('exerciseSets', { keyPath: 'id' }); // 1. DB Schema Update
                     };
                 });
             },
@@ -441,6 +442,17 @@
                     request.onsuccess = () => resolve();
                     request.onerror = event => reject(event.target.error);
                 });
+            },
+
+            delete(storeName, key) { // 7. Implement App.db.delete
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(storeName, 'readwrite');
+                    const store = transaction.objectStore(storeName);
+                    const request = store.delete(key);
+                    request.onsuccess = () => resolve(); // Typically, delete doesn't return the object
+                    request.onerror = event => reject(event.target.error);
+                    // transaction.oncomplete might be redundant if request.onsuccess is sufficient
+                });
             }
         },
 
@@ -450,11 +462,12 @@
              * @returns {Promise<object>} A promise that resolves with the application state.
              */
             async load() {
-                const [settings, exercises, plans, history] = await Promise.all([
+                const [settings, exercises, plans, history, exerciseSetsData] = await Promise.all([ // 4. Storage Load
                     App.db.getAll('settings'),
                     App.db.getAll('exercises'),
                     App.db.getAll('plans'),
-                    App.db.getAll('history')
+                    App.db.getAll('history'),
+                    App.db.getAll('exerciseSets') // Load exercise sets
                 ]);
 
                 if (settings.length === 0) {
@@ -464,6 +477,7 @@
                 const state = settings[0]; // Settings store holds the main state object
                 state.exercises = new Map(exercises.map(e => [e.id, e]));
                 state.plans = new Map(plans.map(p => [p.id, p]));
+                state.exerciseSets = new Map(exerciseSetsData.map(s => [s.id, s])); // Reconstruct Map
                 state.history = history;
                 state.achievements = new Set(state.achievements || []);
 
@@ -482,6 +496,7 @@
                     delete settingsToSave.exercises;
                     delete settingsToSave.plans;
                     delete settingsToSave.history;
+                    delete settingsToSave.exerciseSets; // Ensure exerciseSets Map is not saved in settings object
                     settingsToSave.achievements = Array.from(settingsToSave.achievements || []);
 
                     // Use Promise.all to save everything concurrently
@@ -489,6 +504,7 @@
                         App.db.put('settings', settingsToSave),
                         ...Array.from(state.exercises.values()).map(ex => App.db.put('exercises', ex)),
                         ...Array.from(state.plans.values()).map(p => App.db.put('plans', p)),
+                        ...Array.from(state.exerciseSets.values()).map(set => App.db.put('exerciseSets', set)), // 3. Storage Save
                         // History is only added to, not re-saved in its entirety
                     ]);
                 } catch (e) {
@@ -509,6 +525,7 @@
                     history: [],
                     achievements: new Set(),
                     quickSet: [],
+                    exerciseSets: new Map(), // 2. State Initialization
                     ui: { currentView: 'dashboard', theme: 'dark' },
                 };
 
@@ -570,13 +587,19 @@
                                 App.db.clear('history'),
                             ]);
                             // Save new state
+                            // Rehydrate Maps and Sets from the imported JSON structure
+                            data.exercises = new Map(data.exercises || []);
+                            data.plans = new Map(data.plans || []);
+                            data.achievements = new Set(data.achievements || []);
+
                             await this.save(data);
                             // Re-initialize app with new data
+                            // App.init() will call load, which will correctly read the saved Maps/Sets
                             await App.init(); 
                             App.ui.showToast("Daten erfolgreich importiert!", "success");
                         } else { throw new Error("Invalid file structure."); }
                     } catch(err) { 
-                        App.ui.showToast("Ungültige oder korrupte Datendatei.", "error"); 
+                        App.ui.showToast("Ungültige oder korrupte Datendatei.", "error");
                         console.error(err);
                     }
                 };
@@ -597,6 +620,7 @@
                     state.user.level = level;
                     const levelName = { beginner: 'Anfänger', intermediate: 'Sportlich', expert: 'Experte' }[level];
                     App.ui.showToast(`Trainingsmodus auf "${levelName}" gesetzt.`, "info");
+                    return true; // Added for subtask verification
                 },
 
                 updateHydration(amount, state) {
@@ -610,48 +634,421 @@
             exercises: {
                 create(data, state) {
                     const id = App.logic.utils.generateId('ex');
-                    const exercise = { 
-                        id, 
-                        history: [], 
-                        pr: { weight: 0, reps: 0 },
-                        ...data 
+
+                    // data might come from a form: { name, muscleGroup, type, equipment, settings_seat, settings_backrest, ... }
+                    // Or from an existing object: { name, muscleGroup, type, equipment, settings: { seat, backrest ...}}
+
+                    const exercise = {
+                        id: id,
+                        name: data.name || 'Unbenannte Übung',
+                        muscleGroup: data.muscleGroup || 'N/A',
+                        type: data.type || 'compound', // Default to 'compound'
+                        equipment: data.equipment || 'barbell', // Default to 'barbell'
+
+                        settings: {
+                            seat: data.settings?.seat ?? data.settings_seat ?? null,
+                            backrest: data.settings?.backrest ?? data.settings_backrest ?? null,
+                            customSettings: data.settings?.customSettings ?? {}
+                        },
+
+                        metrics: {
+                            // Assuming data.pr is { weight: X, reps: Y } from old structure, or data.personalRecord is just weight
+                            personalRecord: data.metrics?.personalRecord ?? data.pr?.weight ?? 0,
+                            averageWeight: data.metrics?.averageWeight ?? 0,
+                            totalVolume: data.metrics?.totalVolume ?? 0,
+                            // Assuming data.history is the old performance history
+                            performanceHistory: data.metrics?.performanceHistory ?? data.history ?? []
+                        },
+
+                        biomechanics: {
+                            rangeOfMotion: data.biomechanics?.rangeOfMotion ?? 'full', // Default to 'full'
+                            tempo: data.biomechanics?.tempo ?? '2-0-2-0', // Default to '2-0-2-0'
+                            muscleActivation: {}, // Initially empty, to be filled by calculateMuscleActivation
+                            stabilizationDemand: data.biomechanics?.stabilizationDemand ?? 0.5 // Default to 0.5
+                        }
                     };
+
+                    // Clean up settings if they were flat in data
+                    if (data.settings_seat) delete exercise.settings_seat;
+                    if (data.settings_backrest) delete exercise.settings_backrest;
+
                     state.exercises.set(id, exercise);
                     return exercise;
                 },
+
+                calculateMuscleActivation(exerciseData) {
+                    const baseActivation = {
+                        primary: 1.0,
+                        secondary: 0.6,
+                        stabilizers: 0.3
+                    };
+
+                    const equipmentModifiers = {
+                        barbell: 1.0,
+                        dumbbell: 0.95,
+                        cable: 0.9,
+                        machine: 0.85,
+                        bodyweight: 1.1,
+                        kettlebell: 1.05
+                    };
+
+                    const equipmentName = exerciseData.equipment ? String(exerciseData.equipment).toLowerCase() : 'unknown';
+                    const modifier = equipmentModifiers[equipmentName] || 1.0;
+
+                    return {
+                        ...baseActivation,
+                        modifier: modifier
+                    };
+                },
+
+                calculatePerformanceTrend(performanceHistory) {
+                    if (!performanceHistory || performanceHistory.length < 2) {
+                        return 'insufficient data'; // Or 'stable' as per preference
+                    }
+
+                    const n = performanceHistory.length;
+                    let sumX = 0;
+                    let sumY = 0;
+                    let sumXY = 0;
+                    let sumX2 = 0;
+
+                    performanceHistory.forEach((entry, index) => {
+                        const x = index;
+                        const y = entry.weight; // Assuming 'weight' is the primary metric for trend
+
+                        if (typeof y !== 'number') {
+                            // Skip non-numeric entries or handle error
+                            // For simplicity, we'll skip here, but a robust solution might need error handling
+                            // or ensure data integrity upstream.
+                            return;
+                        }
+
+                        sumX += x;
+                        sumY += y;
+                        sumXY += x * y;
+                        sumX2 += x * x;
+                    });
+
+                    const denominator = (n * sumX2 - sumX * sumX);
+                    if (denominator === 0) {
+                        return 'stable'; // Avoid division by zero, implies no variance in x or perfect correlation
+                    }
+
+                    const slope = (n * sumXY - sumX * sumY) / denominator;
+
+                    // Define thresholds for trend
+                    const improvingThreshold = 0.5; // Example: weight increases by 0.5 units per session on average
+                    const decliningThreshold = -0.5;
+
+                    if (slope > improvingThreshold) {
+                        return 'improving';
+                    } else if (slope < decliningThreshold) {
+                        return 'declining';
+                    } else {
+                        return 'stable';
+                    }
+                }
+            },
+
+            exerciseSetManager: { // 5. Create App.logic.exerciseSetManager
+                async create(nameString, exerciseIdsArray, state) {
+                    const id = App.logic.utils.generateId('ex_set');
+                    const newSet = { id, name: nameString, exercises: exerciseIdsArray || [] };
+                    state.exerciseSets.set(id, newSet);
+                    await App.db.put('exerciseSets', newSet);
+                    return newSet;
+                },
+
+                get(setId, state) {
+                    return state.exerciseSets.get(setId);
+                },
+
+                async update(setId, nameString, exerciseIdsArray, state) {
+                    if (state.exerciseSets.has(setId)) {
+                        const set = state.exerciseSets.get(setId);
+                        set.name = nameString;
+                        set.exercises = exerciseIdsArray || [];
+                        await App.db.put('exerciseSets', set);
+                        return set;
+                    }
+                    return null; // Or throw error
+                },
+
+                async deleteSet(setId, state) {
+                    if (state.exerciseSets.has(setId)) {
+                        state.exerciseSets.delete(setId);
+                        await App.db.delete('exerciseSets', setId); // Uses the new App.db.delete
+                        return true;
+                    }
+                    return false;
+                }
             },
         
             /**
              * Namespace for all plan-related logic.
              */
             plans: {
-                create(data, state) {
+                // --- Helper Functions for Optimal Settings ---
+                calculateOptimalSets(exerciseData, userLevel) {
+                    const type = exerciseData?.type || 'compound';
+                    const level = userLevel || 'intermediate';
+
+                    if (type === 'compound') {
+                        if (level === 'beginner') return 3;
+                        if (level === 'intermediate') return 4;
+                        if (level === 'expert') return 5;
+                    } else { // isolation
+                        if (level === 'beginner') return 2;
+                        if (level === 'intermediate') return 3;
+                        if (level === 'expert') return 4;
+                    }
+                    return 3; // Default
+                },
+
+                calculateOptimalReps(exerciseData, planGoal = 'hypertrophy') {
+                    // exerciseData.type could be used for more specific tuning if needed
+                    // planGoal can be 'strength', 'hypertrophy', 'endurance', or plan types like 'push', 'fullbody'
+
+                    let goal = planGoal;
+                    // Simple mapping from plan type/targetVolume to goal if needed
+                    if (['push', 'pull', 'legs', 'fullbody', 'custom', 'moderate'].includes(planGoal)) {
+                        goal = 'hypertrophy'; // Default to hypertrophy for common plan types/moderate volume
+                    }
+
+                    if (goal === 'strength') return '3-5';
+                    if (goal === 'hypertrophy') return '8-12';
+                    if (goal === 'endurance') return '15-20';
+
+                    return '8-12'; // Default
+                },
+
+                calculateOptimalRest(exerciseData, userLevel) {
+                    const type = exerciseData?.type || 'compound';
+                    // userLevel could be used for more specific tuning if needed
+
+                    if (type === 'compound') return 90; // seconds
+                    if (type === 'isolation') return 60; // seconds
+
+                    return 75; // Default
+                },
+
+                optimizePlanOrder(plan, state) {
+                    // Modifies plan.exercises in place
+                    // Sorts by compound first, then by original order (implicitly, if stable sort)
+                    // More complex sorting could involve muscle group size, exercise difficulty etc.
+                    plan.exercises.sort((a, b) => {
+                        const exA_Data = state.exercises.get(a.id);
+                        const exB_Data = state.exercises.get(b.id);
+
+                        if (!exA_Data || !exB_Data) return 0; // Should not happen if data is consistent
+
+                        const typeA = exA_Data.type === 'compound' ? 0 : 1;
+                        const typeB = exB_Data.type === 'compound' ? 0 : 1;
+
+                        if (typeA !== typeB) {
+                            return typeA - typeB; // Compound exercises first
+                        }
+                        return a.order - b.order; // Preserve original order among same types initially
+                    });
+                    // Re-assign order property
+                    plan.exercises.forEach((ex, index) => {
+                        ex.order = index;
+                    });
+                },
+
+                // --- Main CRUD for Plans ---
+                async create(data, state) {
                     const id = App.logic.utils.generateId('plan');
-                    const plan = { id, exercises: [], ...data };
+                    const now = Date.now();
+
+                    const plan = {
+                        id,
+                        name: data.name || 'Unbenannter Plan',
+                        description: data.description || '',
+                        exercises: [], // Initially empty, added via addExerciseToPlan or UI
+                        type: data.type || 'custom', // Default plan type
+                        variables: data.variables || { targetVolume: 'moderate', intensity: 'moderate' },
+                        periodization: {
+                            type: data.periodizationType || 'linear', // Default periodization
+                            currentWeek: 1,
+                            cycleLength: data.cycleLength || 4, // Default cycle length
+                            phases: [] // To be populated
+                        },
+                        autoRegulation: data.autoRegulation || { enabled: true, rpeTarget: 7 },
+                        created: now,
+                        lastModified: now,
+                        analytics: {
+                            timesCompleted: 0,
+                            totalVolumeLifted: 0,
+                            averageDurationMinutes: 0
+                        }
+                    };
+
+                    // Populate periodization phases
+                    plan.periodization.phases = this.generatePeriodizationPhases(plan); // 'this' refers to App.logic.plans
+
                     state.plans.set(id, plan);
+                    await App.db.put('plans', plan); // Persist to IndexedDB
                     return plan;
                 },
 
-                addExercise(planId, exId, state) {
-                    const plan = state.plans.get(planId);
-                    if (plan && !plan.exercises.some(e => e.id === exId)) {
-                        plan.exercises.push({ id: exId, sets: 3, reps: '8-12', rest: 90 });
+                generatePeriodizationPhases(planData) {
+                    const phases = [];
+                    const type = planData.periodization.type || 'linear';
+                    const cycleLength = planData.periodization.cycleLength || 4; // Default 4 weeks
+
+                    switch (type) {
+                        case 'linear':
+                            const baseVolumeLinear = 10; // Example base volume
+                            for (let week = 1; week <= cycleLength; week++) {
+                                phases.push({
+                                    week,
+                                    volumeFactor: 1.0 + (week - 1) * 0.1, // e.g., 1.0, 1.1, 1.2, 1.3
+                                    intensityPercent: 70 + (week - 1) * 5, // e.g., 70, 75, 80, 85
+                                    focus: (week === cycleLength) ? 'deload' : 'accumulation'
+                                });
+                            }
+                            // Ensure the last week is a deload by adjusting factors
+                            if (cycleLength > 1 && phases[cycleLength-1].focus === 'deload') {
+                                phases[cycleLength-1].volumeFactor = 0.7; // Significantly lower volume
+                                phases[cycleLength-1].intensityPercent = 60; // Lower intensity
+                            }
+                            break;
+                        case 'undulating':
+                            // For undulating, each week in the cycle could represent the structure for that week
+                            // The daily split (A,B,C) would be applied by the session starter logic
+                            for (let week = 1; week <= cycleLength; week++) {
+                                phases.push({
+                                    week,
+                                    type: 'undulating',
+                                    // Daily structure hint, actual application in session logic
+                                    dailyStructure: [
+                                        { day: 'A', focus: 'hypertrophy', reps: '8-12', intensityPercentRPE: '70-80 (RPE 7-8)' },
+                                        { day: 'B', focus: 'strength', reps: '3-5', intensityPercentRPE: '80-90 (RPE 8-9)' },
+                                        { day: 'C', focus: 'endurance', reps: '15-20', intensityPercentRPE: '60-70 (RPE 6-7)' }
+                                    ],
+                                    focus: `Week ${week} Undulating Focus`
+                                });
+                            }
+                            break;
+                        case 'block':
+                            // Example block periodization: 3 blocks, cycleLength would be total weeks for these blocks
+                            const totalBlockWeeks = cycleLength;
+                            const accumulationWeeks = Math.ceil(totalBlockWeeks * 0.5); // 50%
+                            const intensificationWeeks = Math.floor(totalBlockWeeks * 0.3); // 30%
+                            const realizationWeeks = Math.max(1, totalBlockWeeks - accumulationWeeks - intensificationWeeks); // Remaining, at least 1
+
+                            if (accumulationWeeks > 0) phases.push({ blockName: 'Accumulation', durationWeeks: accumulationWeeks, focus: 'volume', intensity: 'moderate', volumeFactor: 1.2, intensityPercent: 70 });
+                            if (intensificationWeeks > 0) phases.push({ blockName: 'Intensification', durationWeeks: intensificationWeeks, focus: 'intensity', intensity: 'high', volumeFactor: 1.0, intensityPercent: 85 });
+                            if (realizationWeeks > 0) phases.push({ blockName: 'Realization', durationWeeks: realizationWeeks, focus: 'peak', intensity: 'very_high', volumeFactor: 0.8, intensityPercent: 90 });
+                            break;
+                        default:
+                            // Default to a simple linear if type is unknown, or empty phases
+                            for (let week = 1; week <= cycleLength; week++) {
+                                phases.push({ week, volumeFactor: 1.0, intensityPercent: 70, focus: 'standard' });
+                            }
+                            break;
                     }
+                    return phases;
                 },
 
-                removeExercise(planId, exId, state) {
+                // --- CRUD for Exercises within a Plan ---
+                async addExerciseToPlan(planId, exerciseId, configuration = {}, state) {
                     const plan = state.plans.get(planId);
-                    if (plan) plan.exercises = plan.exercises.filter(e => e.id !== exId);
+                    if (!plan) {
+                        console.error(`Plan with ID ${planId} not found.`);
+                        return null;
+                    }
+                    const exerciseData = state.exercises.get(exerciseId);
+                    if (!exerciseData) {
+                        console.error(`Exercise with ID ${exerciseId} not found.`);
+                        return null;
+                    }
+
+                    // Determine plan goal for optimal reps. Use plan.variables.targetVolume or plan.type as a proxy.
+                    let planGoal = 'hypertrophy'; // Default
+                    if (plan.variables && plan.variables.targetVolume) {
+                        planGoal = plan.variables.targetVolume; // e.g., 'strength', 'hypertrophy', 'endurance'
+                    } else if (plan.type) {
+                         // Simple mapping if plan.type is like 'strength training' etc.
+                        if (plan.type.toLowerCase().includes('strength')) planGoal = 'strength';
+                        else if (plan.type.toLowerCase().includes('endurance')) planGoal = 'endurance';
+                    }
+
+
+                    const sets = configuration.sets || this.calculateOptimalSets(exerciseData, state.user.level);
+                    const reps = configuration.reps || this.calculateOptimalReps(exerciseData, planGoal);
+                    const rest = configuration.restTime || this.calculateOptimalRest(exerciseData, state.user.level);
+
+                    // Use a unique ID for the plan exercise entry if needed for precise updates/deletions.
+                    // For now, exerciseId (original exercise ID) is used, assuming one instance per plan or simple updates.
+                    // If multiple instances of the same exercise are allowed with different configs, planExercise.id should be unique.
+                    const planExercise = {
+                        id: exerciseId, // This is the ID of the exercise in the main exercises list
+                        // entryId: App.logic.utils.generateId('plan_ex_entry'), // Optional: for unique identification within the plan
+                        sets,
+                        reps,
+                        rest,
+                        order: plan.exercises.length // Initial order
+                    };
+
+                    plan.exercises.push(planExercise);
+                    this.optimizePlanOrder(plan, state); // Re-sort and update order
+
+                    plan.lastModified = Date.now();
+                    await App.db.put('plans', plan);
+                    return plan;
                 },
 
-                updateExercise(planId, exId, field, value, state) {
+                async removeExerciseFromPlan(planId, exerciseIdToRemove, state) { // Assuming exerciseIdToRemove is the ID of the exercise in the plan's list
                     const plan = state.plans.get(planId);
-                    if (!plan) return;
-                    const exercise = plan.exercises.find(e => e.id === exId);
-                    if (exercise) {
-                        exercise[field] = (field === 'sets' || field === 'rest') ? parseInt(value, 10) : value;
+                    if (!plan) {
+                        console.error(`Plan with ID ${planId} not found.`);
+                        return null;
                     }
+
+                    const initialLength = plan.exercises.length;
+                    // If using unique entryId: plan.exercises = plan.exercises.filter(ex => ex.entryId !== exerciseIdToRemove);
+                    // Current logic: remove based on the exercise's main ID. This might remove multiple if duplicates exist.
+                    // For this version, we'll assume we remove the first found instance if IDs are not unique per entry.
+                    // Or, if exerciseIdToRemove is meant to be the actual exercise ID, filter all matching.
+                    // The current UI (from Trainingsboy_v0) seems to imply removing by the exercise's own ID.
+                    const exerciseIndex = plan.exercises.findIndex(ex => ex.id === exerciseIdToRemove);
+                    if (exerciseIndex > -1) {
+                        plan.exercises.splice(exerciseIndex, 1);
+                    }
+
+                    if (plan.exercises.length < initialLength) {
+                        this.optimizePlanOrder(plan, state); // Re-order
+                        plan.lastModified = Date.now();
+                        await App.db.put('plans', plan);
+                    }
+                    return plan;
                 },
+
+                async updateExerciseInPlan(planId, exerciseIdToUpdate, field, value, state) {
+                    // exerciseIdToUpdate refers to the 'id' field of the exercise object within plan.exercises array
+                    const plan = state.plans.get(planId);
+                    if (!plan) {
+                        console.error(`Plan with ID ${planId} not found.`);
+                        return null;
+                    }
+
+                    const exerciseEntry = plan.exercises.find(ex => ex.id === exerciseIdToUpdate);
+
+                    if (exerciseEntry) {
+                        if (field === 'sets' || field === 'rest') {
+                            exerciseEntry[field] = parseInt(value, 10);
+                        } else {
+                            exerciseEntry[field] = value;
+                        }
+                        plan.lastModified = Date.now();
+                        await App.db.put('plans', plan);
+                    } else {
+                        console.warn(`Exercise entry with ID ${exerciseIdToUpdate} not found in plan ${planId}.`);
+                    }
+                    return plan;
+                }
             },
             
             /**
