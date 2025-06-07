@@ -1,0 +1,2699 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Fitness Tracker - Progressive Training App</title>
+    <style>
+        /* CSS Variables für Theming */
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --dark: #1f2937;
+            --light: #f9fafb;
+            --text: #111827;
+            --text-light: #6b7280;
+            --border: #e5e7eb;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1);
+            --radius: 0.5rem;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        [data-theme="dark"] {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --secondary: #34d399;
+            --dark: #f9fafb;
+            --light: #111827;
+            --text: #f9fafb;
+            --text-light: #d1d5db;
+            --border: #374151;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--light);
+            color: var(--text);
+            line-height: 1.6;
+            transition: var(--transition);
+        }
+
+        /* Layout */
+        .app-container {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: var(--dark);
+            color: var(--light);
+            padding: 1rem;
+            box-shadow: var(--shadow-lg);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 1rem;
+            background: var(--dark);
+            padding: 0.5rem;
+            border-radius: var(--radius);
+        }
+
+        .nav-tab {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: none;
+            color: var(--text-light);
+            cursor: pointer;
+            border-radius: var(--radius);
+            transition: var(--transition);
+            font-size: 0.9rem;
+        }
+
+        .nav-tab.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .section {
+            display: none;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Dashboard Styles */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        /* Exercise Management */
+        .exercise-container {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 2rem;
+        }
+
+        .exercise-list {
+            background: white;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 1.5rem;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .exercise-item {
+            padding: 1rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 0.5rem;
+            cursor: grab;
+            transition: var(--transition);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .exercise-item:hover {
+            background: var(--light);
+            transform: translateX(5px);
+        }
+
+        .exercise-item.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+
+        /* Workout Plan Builder */
+        .plan-builder {
+            background: white;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 1.5rem;
+        }
+
+        .drop-zone {
+            min-height: 200px;
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 1rem;
+            text-align: center;
+            transition: var(--transition);
+        }
+
+        .drop-zone.drag-over {
+            background: var(--primary);
+            background-opacity: 0.1;
+            border-color: var(--primary);
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 1rem;
+            transition: var(--transition);
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: var(--secondary);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        /* Training Session */
+        .session-container {
+            background: white;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 2rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .exercise-set {
+            display: grid;
+            grid-template-columns: auto 1fr 1fr 1fr auto;
+            gap: 1rem;
+            align-items: center;
+            padding: 1rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 0.5rem;
+        }
+
+        .set-number {
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .timer {
+            font-size: 3rem;
+            font-weight: bold;
+            text-align: center;
+            color: var(--primary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Progress Ring */
+        .progress-ring {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto;
+        }
+
+        .progress-ring-circle {
+            stroke: var(--primary);
+            fill: transparent;
+            stroke-width: 10;
+            stroke-linecap: round;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+            transition: stroke-dashoffset 0.3s;
+        }
+
+        /* Charts */
+        .chart-container {
+            background: white;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            height: 400px;
+        }
+
+        /* Modals */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: var(--radius);
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .exercise-container {
+                grid-template-columns: 1fr;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .nav-tabs {
+                flex-wrap: wrap;
+            }
+        }
+
+        /* Loading Animation */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Tooltips */
+        .tooltip {
+            position: relative;
+            cursor: help;
+        }
+
+        .tooltip::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--dark);
+            color: white;
+            padding: 0.5rem;
+            border-radius: var(--radius);
+            font-size: 0.8rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .tooltip:hover::after {
+            opacity: 1;
+        }
+
+        /* Achievements */
+        .achievement {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border-radius: var(--radius);
+            margin-bottom: 1rem;
+            animation: slideInRight 0.5s ease-out;
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .achievement-icon {
+            font-size: 2rem;
+        }
+
+        /* Hydration Tracker */
+        .hydration-tracker {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            padding: 1rem;
+            background: #3b82f6;
+            background: linear-gradient(135deg, #3b82f6, #60a5fa);
+            border-radius: var(--radius);
+            color: white;
+        }
+
+        .water-glass {
+            width: 30px;
+            height: 40px;
+            border: 2px solid white;
+            border-radius: 0 0 5px 5px;
+            position: relative;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .water-glass::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.7);
+            transition: height 0.3s;
+        }
+
+        .water-glass.filled::after {
+            height: 100%;
+        }
+
+        /* Advanced Analytics */
+        .heatmap-container {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 3px;
+            padding: 1rem;
+            background: white;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+        }
+
+        .heatmap-cell {
+            aspect-ratio: 1;
+            background: var(--border);
+            border-radius: 2px;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .heatmap-cell[data-intensity="1"] { background: #10b981; opacity: 0.3; }
+        .heatmap-cell[data-intensity="2"] { background: #10b981; opacity: 0.5; }
+        .heatmap-cell[data-intensity="3"] { background: #10b981; opacity: 0.7; }
+        .heatmap-cell[data-intensity="4"] { background: #10b981; opacity: 0.9; }
+        .heatmap-cell[data-intensity="5"] { background: #10b981; }
+
+        /* Muscle Group Visualization */
+        .muscle-map {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .muscle-group {
+            padding: 1rem;
+            text-align: center;
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .muscle-group.active {
+            background: var(--primary);
+            color: white;
+            transform: scale(1.05);
+        }
+
+        .muscle-group.worked {
+            background: var(--secondary);
+            color: white;
+        }
+
+        /* Rest Timer */
+        .rest-timer-widget {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--dark);
+            color: white;
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+            z-index: 100;
+            display: none;
+        }
+
+        .rest-timer-widget.active {
+            display: block;
+            animation: slideInUp 0.3s ease-out;
+        }
+
+        @keyframes slideInUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* Breathing Guide */
+        .breathing-circle {
+            width: 150px;
+            height: 150px;
+            margin: 2rem auto;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: breathe 4s infinite;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+
+        @keyframes breathe {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 1; }
+        }
+
+        /* Performance Metrics */
+        .metric-card {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.8); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: scale(1.2); opacity: 0; }
+        }
+
+        /* Workout Intensity Indicator */
+        .intensity-meter {
+            display: flex;
+            gap: 0.25rem;
+            align-items: center;
+            padding: 0.5rem;
+        }
+
+        .intensity-bar {
+            width: 20px;
+            height: 40px;
+            background: var(--border);
+            border-radius: 2px;
+            transition: var(--transition);
+        }
+
+        .intensity-bar.active {
+            background: var(--primary);
+        }
+
+        .intensity-bar.active.high {
+            background: var(--danger);
+            animation: intensityPulse 1s infinite;
+        }
+
+        @keyframes intensityPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Training Mode Selector */
+        .mode-selector {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .mode-card {
+            padding: 2rem;
+            text-align: center;
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .mode-card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .mode-card.selected {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .mode-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        /* Smart Suggestions */
+        .suggestion-card {
+            background: linear-gradient(135deg, #f59e0b, #f97316);
+            color: white;
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .suggestion-icon {
+            font-size: 2rem;
+        }
+
+        /* Form Validation */
+        .input-error {
+            border-color: var(--danger);
+        }
+
+        .error-message {
+            color: var(--danger);
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+
+        /* Success Animation */
+        .success-checkmark {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto;
+        }
+
+        .success-checkmark-circle {
+            stroke-dasharray: 166;
+            stroke-dashoffset: 166;
+            stroke-width: 2;
+            stroke-miterlimit: 10;
+            stroke: var(--secondary);
+            fill: none;
+            animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+        }
+
+        .success-checkmark-check {
+            transform-origin: 50% 50%;
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+        }
+
+        @keyframes stroke {
+            100% {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        /* Dark Mode Toggle */
+        .theme-toggle {
+            background: transparent;
+            border: none;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 1.5rem;
+            transition: var(--transition);
+        }
+
+        .theme-toggle:hover {
+            transform: rotate(180deg);
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    💪 Ultimate Fitness Tracker
+                </div>
+                <nav class="nav-tabs">
+                    <button class="nav-tab active" data-section="dashboard">Dashboard</button>
+                    <button class="nav-tab" data-section="exercises">Übungen</button>
+                    <button class="nav-tab" data-section="plans">Trainingspläne</button>
+                    <button class="nav-tab" data-section="training">Training</button>
+                    <button class="nav-tab" data-section="analytics">Analysen</button>
+                    <button class="nav-tab" data-section="settings">Einstellungen</button>
+                </nav>
+                <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Section -->
+            <section id="dashboard" class="section active">
+                <h1>Willkommen zurück! 👋</h1>
+                <p class="text-light">Hier ist deine Trainingsübersicht</p>
+
+                <!-- Training Mode Selector -->
+                <div class="mode-selector">
+                    <div class="mode-card" data-level="beginner">
+                        <div class="mode-icon">🌱</div>
+                        <h3>Anfänger</h3>
+                        <p>Langsamer Fortschritt, längere Erholungszeiten</p>
+                    </div>
+                    <div class="mode-card selected" data-level="intermediate">
+                        <div class="mode-icon">🎯</div>
+                        <h3>Sportlich</h3>
+                        <p>Ausgewogenes Training mit moderatem Fortschritt</p>
+                    </div>
+                    <div class="mode-card" data-level="expert">
+                        <div class="mode-icon">🚀</div>
+                        <h3>Experte</h3>
+                        <p>Intensives Training mit schnellem Fortschritt</p>
+                    </div>
+                </div>
+
+                <!-- Smart Suggestions -->
+                <div class="suggestion-card">
+                    <div class="suggestion-icon">💡</div>
+                    <div>
+                        <h3>Trainingsempfehlung</h3>
+                        <p>Basierend auf deiner Erholung empfehlen wir heute ein leichtes Oberkörpertraining.</p>
+                    </div>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="dashboard-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">247</div>
+                        <div class="stat-label">Trainingseinheiten gesamt</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">15.2k</div>
+                        <div class="stat-label">Gesamtgewicht bewegt (kg)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">92%</div>
+                        <div class="stat-label">Trainingseffizienz</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">5</div>
+                        <div class="stat-label">Aktuelle Serie (Tage)</div>
+                    </div>
+                </div>
+
+                <!-- Recent Workouts -->
+                <h2>Letzte 5 Trainingseinheiten</h2>
+                <div class="recent-workouts" id="recentWorkouts">
+                    <!-- Dynamically populated -->
+                </div>
+
+                <!-- Hydration Tracker -->
+                <div class="hydration-tracker">
+                    <h3>Hydration heute:</h3>
+                    <div class="water-glass"></div>
+                    <div class="water-glass"></div>
+                    <div class="water-glass"></div>
+                    <div class="water-glass"></div>
+                    <div class="water-glass"></div>
+                    <div class="water-glass"></div>
+                    <div class="water-glass"></div>
+                    <div class="water-glass"></div>
+                    <span>0 / 2.5L</span>
+                </div>
+
+                <!-- Quick Start -->
+                <button class="btn btn-primary" onclick="startQuickWorkout()">
+                    <span>⚡</span> Schnellstart Training
+                </button>
+            </section>
+
+            <!-- Exercises Section -->
+            <section id="exercises" class="section">
+                <h1>Übungsverwaltung</h1>
+
+                <div class="exercise-container">
+                    <!-- Exercise List -->
+                    <div class="exercise-list">
+                        <h2>Alle Übungen</h2>
+                        <button class="btn btn-primary" onclick="showAddExerciseModal()">
+                            + Neue Übung
+                        </button>
+                        <div id="exerciseList">
+                            <!-- Dynamically populated -->
+                        </div>
+                    </div>
+
+                    <!-- Exercise Sets Builder -->
+                    <div class="plan-builder">
+                        <h2>Übungssets erstellen</h2>
+                        <div class="drop-zone" id="exerciseSetDropZone">
+                            <p>Ziehe Übungen hierher, um ein Set zu erstellen</p>
+                        </div>
+                        <button class="btn btn-secondary" onclick="saveExerciseSet()">
+                            Set speichern
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Training Plans Section -->
+            <section id="plans" class="section">
+                <h1>Trainingspläne</h1>
+
+                <button class="btn btn-primary" onclick="showAddPlanModal()">
+                    + Neuer Trainingsplan
+                </button>
+
+                <div class="plans-container">
+                    <!-- Plan List -->
+                    <div id="plansList">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Training Section -->
+            <section id="training" class="section">
+                <h1>Aktuelles Training</h1>
+
+                <div class="session-container">
+                    <div class="training-header">
+                        <h2>Wähle einen Trainingsplan</h2>
+                        <select id="planSelector" class="form-control">
+                            <option value="">-- Plan auswählen --</option>
+                        </select>
+                    </div>
+
+                    <div id="trainingSession" style="display: none;">
+                        <!-- Current Exercise Display -->
+                        <div class="current-exercise">
+                            <h2 id="currentExerciseName">Bankdrücken</h2>
+                            <div class="exercise-info">
+                                <span id="exerciseNotes"></span>
+                            </div>
+                        </div>
+
+                        <!-- Rest Timer -->
+                        <div class="timer" id="restTimer">00:00</div>
+
+                        <!-- Breathing Guide -->
+                        <div class="breathing-circle" id="breathingGuide" style="display: none;">
+                            <span id="breathingText">Einatmen</span>
+                        </div>
+
+                        <!-- Sets -->
+                        <div id="setsContainer">
+                            <!-- Dynamically populated -->
+                        </div>
+
+                        <!-- Intensity Meter -->
+                        <div class="intensity-meter">
+                            <span>Intensität:</span>
+                            <div class="intensity-bar"></div>
+                            <div class="intensity-bar"></div>
+                            <div class="intensity-bar"></div>
+                            <div class="intensity-bar"></div>
+                            <div class="intensity-bar"></div>
+                        </div>
+
+                        <!-- Controls -->
+                        <div class="training-controls">
+                            <button class="btn btn-primary" onclick="nextExercise()">
+                                Nächste Übung →
+                            </button>
+                            <button class="btn btn-secondary" onclick="finishWorkout()">
+                                Training beenden
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Analytics Section -->
+            <section id="analytics" class="section">
+                <h1>Trainingsanalysen</h1>
+
+                <!-- Progress Overview -->
+                <div class="dashboard-grid">
+                    <div class="metric-card">
+                        <h3>Kraftzuwachs</h3>
+                        <div class="stat-value">+23%</div>
+                        <p>Letzte 30 Tage</p>
+                    </div>
+                    <div class="metric-card">
+                        <h3>Trainingsfrequenz</h3>
+                        <div class="stat-value">4.2</div>
+                        <p>Einheiten pro Woche</p>
+                    </div>
+                    <div class="metric-card">
+                        <h3>Volumen</h3>
+                        <div class="stat-value">+15%</div>
+                        <p>Gesamtvolumen erhöht</p>
+                    </div>
+                </div>
+
+                <!-- Muscle Group Distribution -->
+                <h2>Muskelgruppen-Verteilung</h2>
+                <div class="muscle-map">
+                    <div class="muscle-group worked" data-group="chest">Brust</div>
+                    <div class="muscle-group worked" data-group="back">Rücken</div>
+                    <div class="muscle-group" data-group="shoulders">Schultern</div>
+                    <div class="muscle-group worked" data-group="biceps">Bizeps</div>
+                    <div class="muscle-group" data-group="triceps">Trizeps</div>
+                    <div class="muscle-group" data-group="legs">Beine</div>
+                    <div class="muscle-group worked" data-group="core">Core</div>
+                    <div class="muscle-group" data-group="glutes">Gesäß</div>
+                    <div class="muscle-group" data-group="calves">Waden</div>
+                </div>
+
+                <!-- Training Heatmap -->
+                <h2>Trainingsaktivität (letzte 12 Wochen)</h2>
+                <div class="heatmap-container" id="trainingHeatmap">
+                    <!-- Dynamically populated -->
+                </div>
+
+                <!-- Progress Charts -->
+                <h2>Fortschrittsverlauf</h2>
+                <div class="chart-container">
+                    <canvas id="progressChart"></canvas>
+                </div>
+
+                <!-- Achievements -->
+                <h2>Errungenschaften</h2>
+                <div class="achievement">
+                    <div class="achievement-icon">🏆</div>
+                    <div>
+                        <h3>100 Trainingseinheiten!</h3>
+                        <p>Du hast dein 100. Training abgeschlossen</p>
+                    </div>
+                </div>
+                <div class="achievement">
+                    <div class="achievement-icon">🔥</div>
+                    <div>
+                        <h3>30 Tage Serie!</h3>
+                        <p>Du hast 30 Tage in Folge trainiert</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Section -->
+            <section id="settings" class="section">
+                <h1>Einstellungen</h1>
+
+                <div class="settings-container">
+                    <div class="form-group">
+                        <label>Trainingsmodus</label>
+                        <select id="trainingMode">
+                            <option value="beginner">Anfänger</option>
+                            <option value="intermediate" selected>Sportlich</option>
+                            <option value="expert">Experte</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Pausenzeit zwischen Sätzen (Sekunden)</label>
+                        <input type="number" id="restTime" value="90" min="30" max="300">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Gewichtseinheit</label>
+                        <select id="weightUnit">
+                            <option value="kg" selected>Kilogramm (kg)</option>
+                            <option value="lbs">Pfund (lbs)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Benachrichtigungen</label>
+                        <input type="checkbox" id="notifications" checked>
+                        <label for="notifications">Trainingserinnerungen aktivieren</label>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Sportuhr Integration</label>
+                        <button class="btn btn-secondary" onclick="connectSmartwatch()">
+                            Sportuhr verbinden
+                        </button>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Daten Export/Import</label>
+                        <button class="btn btn-primary" onclick="exportData()">
+                            Daten exportieren
+                        </button>
+                        <button class="btn btn-secondary" onclick="importData()">
+                            Daten importieren
+                        </button>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="saveSettings()">
+                        Einstellungen speichern
+                    </button>
+                </div>
+            </section>
+        </main>
+
+        <!-- Rest Timer Widget -->
+        <div class="rest-timer-widget" id="restTimerWidget">
+            <h3>Pausenzeit</h3>
+            <div class="timer" id="widgetTimer">01:30</div>
+            <button class="btn btn-primary" onclick="skipRest()">Pause überspringen</button>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Add Exercise Modal -->
+    <div class="modal" id="addExerciseModal">
+        <div class="modal-content">
+            <h2>Neue Übung hinzufügen</h2>
+            <form id="addExerciseForm">
+                <div class="form-group">
+                    <label>Übungsname</label>
+                    <input type="text" id="exerciseName" required>
+                </div>
+                <div class="form-group">
+                    <label>Muskelgruppe</label>
+                    <select id="muscleGroup" required>
+                        <option value="chest">Brust</option>
+                        <option value="back">Rücken</option>
+                        <option value="shoulders">Schultern</option>
+                        <option value="biceps">Bizeps</option>
+                        <option value="triceps">Trizeps</option>
+                        <option value="legs">Beine</option>
+                        <option value="core">Core</option>
+                        <option value="glutes">Gesäß</option>
+                        <option value="calves">Waden</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Kategorie</label>
+                    <select id="exerciseCategory" required>
+                        <option value="compound">Verbundübung</option>
+                        <option value="isolation">Isolationsübung</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Notizen (optional)</label>
+                    <textarea id="exerciseNotes" rows="3"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Übung speichern</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addExerciseModal')">
+                    Abbrechen
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Plan Modal -->
+    <div class="modal" id="addPlanModal">
+        <div class="modal-content">
+            <h2>Neuer Trainingsplan</h2>
+            <form id="addPlanForm">
+                <div class="form-group">
+                    <label>Planname</label>
+                    <input type="text" id="planName" required>
+                </div>
+                <div class="form-group">
+                    <label>Beschreibung</label>
+                    <textarea id="planDescription" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Trainingsziel</label>
+                    <select id="planGoal">
+                        <option value="strength">Kraft</option>
+                        <option value="hypertrophy">Muskelaufbau</option>
+                        <option value="endurance">Ausdauer</option>
+                        <option value="mixed">Gemischt</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Plan erstellen</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addPlanModal')">
+                    Abbrechen
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+
+        // ============================================
+// ULTIMATE FITNESS TRACKER - CORE ARCHITECTURE
+// ============================================
+
+// Global App State Management
+const FitnessApp = {
+    // Core Data Models
+    state: {
+        currentUser: {
+            id: 'user_001',
+            name: '',
+            level: 'intermediate', // beginner, intermediate, expert
+            stats: {
+                totalWorkouts: 0,
+                totalVolume: 0,
+                currentStreak: 0,
+                bestStreak: 0,
+                startDate: null
+            },
+            preferences: {
+                restTimeBetweenSets: {
+                    beginner: 120,
+                    intermediate: 90,
+                    expert: 60
+                },
+                volumeIncrease: {
+                    beginner: 2.5, // % per week
+                    intermediate: 5,
+                    expert: 7.5
+                },
+                deloadFrequency: {
+                    beginner: 6, // weeks
+                    intermediate: 4,
+                    expert: 3
+                }
+            }
+        },
+
+        exercises: new Map(),
+        exerciseSets: new Map(),
+        workoutPlans: new Map(),
+        workoutHistory: [],
+        currentWorkout: null,
+
+        // Scientific Training Variables
+        trainingMetrics: {
+            volumeLoad: 0,
+            intensityIndex: 0,
+            fatigueLevel: 0,
+            recoveryScore: 100,
+            performanceIndex: 100
+        },
+
+        // UI State
+        ui: {
+            currentView: 'dashboard',
+            selectedPlan: null,
+            draggedExercise: null,
+            notifications: [],
+            theme: 'dark'
+        }
+    },
+
+    // Exercise Database with Scientific Metadata
+    exerciseDatabase: {
+        muscleGroups: {
+            chest: {
+                primary: ['pectoralis_major'],
+                secondary: ['anterior_deltoid', 'triceps'],
+                recoveryTime: 48 // hours
+            },
+            back: {
+                primary: ['latissimus_dorsi', 'rhomboids', 'trapezius'],
+                secondary: ['biceps', 'rear_deltoid'],
+                recoveryTime: 48
+            },
+            shoulders: {
+                primary: ['anterior_deltoid', 'medial_deltoid', 'posterior_deltoid'],
+                secondary: ['trapezius', 'triceps'],
+                recoveryTime: 48
+            },
+            legs: {
+                primary: ['quadriceps', 'hamstrings', 'glutes'],
+                secondary: ['calves', 'core'],
+                recoveryTime: 72
+            },
+            arms: {
+                primary: ['biceps', 'triceps'],
+                secondary: ['forearms'],
+                recoveryTime: 48
+            },
+            core: {
+                primary: ['rectus_abdominis', 'obliques', 'transverse_abdominis'],
+                secondary: ['erector_spinae'],
+                recoveryTime: 24
+            }
+        },
+
+        movementPatterns: {
+            compound: {
+                metabolicCost: 1.0,
+                coordinationDemand: 0.8,
+                growthStimulus: 1.0
+            },
+            isolation: {
+                metabolicCost: 0.5,
+                coordinationDemand: 0.3,
+                growthStimulus: 0.7
+            }
+        }
+    },
+
+    // Initialize Application
+    init() {
+        this.loadFromStorage();
+        this.initializeExercises();
+        this.setupEventSystem();
+        this.startBackgroundProcesses();
+        this.renderUI();
+    },
+
+    // Exercise Management System
+    exerciseManager: {
+        createExercise(data) {
+            const exercise = {
+                id: `ex_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                name: data.name,
+                muscleGroup: data.muscleGroup,
+                type: data.type || 'compound',
+                equipment: data.equipment || 'barbell',
+                notes: data.notes || '',
+                // Machine Settings
+                settings: {
+                    seat: data.seat || null,
+                    backrest: data.backrest || null,
+                    handles: data.handles || null,
+                    customSettings: data.customSettings || {}
+                },
+                // Performance Metrics
+                metrics: {
+                    personalRecord: 0,
+                    averageWeight: 0,
+                    totalVolume: 0,
+                    lastPerformed: null,
+                    performanceHistory: []
+                },
+                // Scientific Parameters
+                biomechanics: {
+                    rangeOfMotion: data.rom || 'full',
+                    tempo: data.tempo || '2-0-2-0', // eccentric-pause-concentric-pause
+                    muscleActivation: this.calculateMuscleActivation(data),
+                    stabilizationDemand: data.stabilization || 0.5
+                }
+            };
+
+            FitnessApp.state.exercises.set(exercise.id, exercise);
+            this.updateExerciseAnalytics(exercise.id);
+            return exercise;
+        },
+
+        calculateMuscleActivation(exerciseData) {
+            // Scientific muscle activation calculation
+            const baseActivation = {
+                primary: 1.0,
+                secondary: 0.6,
+                stabilizers: 0.3
+            };
+
+            // Adjust based on exercise type and equipment
+            const equipmentModifiers = {
+                barbell: 1.0,
+                dumbbell: 0.95,
+                cable: 0.9,
+                machine: 0.85,
+                bodyweight: 1.1
+            };
+
+            return {
+                ...baseActivation,
+                modifier: equipmentModifiers[exerciseData.equipment] || 1.0
+            };
+        },
+
+        updateExerciseAnalytics(exerciseId) {
+            const exercise = FitnessApp.state.exercises.get(exerciseId);
+            if (!exercise) return;
+
+            // Calculate performance trends
+            const history = exercise.metrics.performanceHistory;
+            if (history.length > 0) {
+                const recentPerformances = history.slice(-10);
+                const trend = this.calculatePerformanceTrend(recentPerformances);
+                exercise.metrics.trend = trend;
+            }
+        },
+
+        calculatePerformanceTrend(performances) {
+            if (performances.length < 2) return 'stable';
+
+            // Linear regression for trend analysis
+            const n = performances.length;
+            const sumX = performances.reduce((sum, _, i) => sum + i, 0);
+            const sumY = performances.reduce((sum, p) => sum + p.weight, 0);
+            const sumXY = performances.reduce((sum, p, i) => sum + i * p.weight, 0);
+            const sumX2 = performances.reduce((sum, _, i) => sum + i * i, 0);
+
+            const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+
+            if (slope > 0.5) return 'improving';
+            if (slope < -0.5) return 'declining';
+            return 'stable';
+        }
+    },
+
+    // Workout Plan Builder
+    workoutPlanBuilder: {
+        createPlan(data) {
+            const plan = {
+                id: `plan_${Date.now()}`,
+                name: data.name,
+                description: data.description,
+                type: data.type, // push, pull, legs, fullbody, custom
+                exercises: [],
+                // Training Variables
+                variables: {
+                    targetVolume: data.targetVolume || 'moderate',
+                    intensity: data.intensity || 'moderate',
+                    frequency: data.frequency || 3,
+                    duration: data.duration || 60 // minutes
+                },
+                // Periodization
+                periodization: {
+                    type: data.periodizationType || 'linear',
+                    currentWeek: 1,
+                    cycleLength: 4,
+                    phases: this.generatePeriodizationPhases(data)
+                },
+                // Auto-regulation
+                autoRegulation: {
+                    enabled: true,
+                    rpeTarget: 7, // Rate of Perceived Exertion
+                    velocityBased: false,
+                    adjustmentFactors: {
+                        sleep: 1.0,
+                        stress: 1.0,
+                        nutrition: 1.0,
+                        recovery: 1.0
+                    }
+                },
+                created: new Date(),
+                lastModified: new Date(),
+                analytics: {
+                    timesCompleted: 0,
+                    averageCompletion: 0,
+                    effectivenessScore: 0
+                }
+            };
+
+            FitnessApp.state.workoutPlans.set(plan.id, plan);
+            return plan;
+        },
+
+        generatePeriodizationPhases(planData) {
+            const phases = [];
+            const baseVolume = 10; // sets per muscle group per week
+
+            switch (planData.periodizationType) {
+                case 'linear':
+                    for (let week = 1; week <= 4; week++) {
+                        phases.push({
+                            week,
+                            volume: baseVolume + (week - 1) * 2,
+                            intensity: 70 + (week - 1) * 5,
+                            deload: week === 4
+                        });
+                    }
+                    break;
+
+                case 'undulating':
+                    phases.push(
+                        { week: 1, volume: 12, intensity: 70, focus: 'hypertrophy' },
+                        { week: 2, volume: 8, intensity: 85, focus: 'strength' },
+                        { week: 3, volume: 15, intensity: 65, focus: 'endurance' },
+                        { week: 4, volume: 6, intensity: 60, focus: 'recovery' }
+                    );
+                    break;
+
+                case 'block':
+                    phases.push(
+                        { block: 'accumulation', weeks: [1, 2], volume: 'high', intensity: 'moderate' },
+                        { block: 'intensification', weeks: [3, 4], volume: 'moderate', intensity: 'high' },
+                        { block: 'realization', weeks: [5, 6], volume: 'low', intensity: 'very_high' }
+                    );
+                    break;
+            }
+
+            return phases;
+        },
+
+        addExerciseToPlan(planId, exerciseId, configuration = {}) {
+            const plan = FitnessApp.state.workoutPlans.get(planId);
+            const exercise = FitnessApp.state.exercises.get(exerciseId);
+
+            if (!plan || !exercise) return;
+
+            const workoutExercise = {
+                exerciseId,
+                order: plan.exercises.length + 1,
+                sets: configuration.sets || this.calculateOptimalSets(exercise, plan),
+                targetReps: configuration.reps || this.calculateOptimalReps(exercise, plan),
+                restTime: configuration.restTime || this.calculateOptimalRest(exercise),
+                // Advanced Programming
+                progression: {
+                    type: configuration.progressionType || 'linear',
+                    weeklyIncrease: this.calculateProgressionRate(exercise, plan),
+                    deloadProtocol: 'reduce_volume'
+                },
+                // Technique cues
+                techniqueCues: this.generateTechniqueCues(exercise),
+                // Performance standards
+                performanceStandards: this.generatePerformanceStandards(exercise, FitnessApp.state.currentUser.level)
+            };
+
+            plan.exercises.push(workoutExercise);
+            this.optimizePlanOrder(plan);
+        },
+
+        calculateOptimalSets(exercise, plan) {
+            const userLevel = FitnessApp.state.currentUser.level;
+            const muscleGroup = exercise.muscleGroup;
+
+            const setsRecommendation = {
+                beginner: { compound: 3, isolation: 2 },
+                intermediate: { compound: 4, isolation: 3 },
+                expert: { compound: 5, isolation: 4 }
+            };
+
+            return setsRecommendation[userLevel][exercise.type];
+        },
+
+        calculateOptimalReps(exercise, plan) {
+            const goal = plan.variables.targetVolume;
+            const exerciseType = exercise.type;
+
+            const repRanges = {
+                strength: { compound: '3-5', isolation: '6-8' },
+                hypertrophy: { compound: '6-12', isolation: '8-15' },
+                endurance: { compound: '12-15', isolation: '15-20' }
+            };
+
+            // Determine goal based on plan type
+            const primaryGoal = plan.type === 'strength' ? 'strength' : 'hypertrophy';
+            return repRanges[primaryGoal][exerciseType];
+        },
+
+        calculateOptimalRest(exercise) {
+            const intensity = exercise.type === 'compound' ? 'high' : 'moderate';
+            const userLevel = FitnessApp.state.currentUser.level;
+
+            const restTimes = {
+                beginner: { high: 180, moderate: 120, low: 60 },
+                intermediate: { high: 120, moderate: 90, low: 45 },
+                expert: { high: 90, moderate: 60, low: 30 }
+            };
+
+            return restTimes[userLevel][intensity];
+        },
+
+        generateTechniqueCues(exercise) {
+            // Exercise-specific technique cues based on biomechanics
+            const cueDatabase = {
+                'Bankdrücken': [
+                    'Schulterblätter zusammenziehen und nach unten',
+                    'Leichte Brücke im unteren Rücken',
+                    'Handgelenke gerade halten',
+                    'Kontrollierte Negative, explosive Positive'
+                ],
+                'Kniebeugen': [
+                    'Füße schulterbreit, leicht nach außen',
+                    'Knie in Richtung der Zehen',
+                    'Brust raus, Blick geradeaus',
+                    'Gewicht auf den Fersen'
+                ],
+                // Add more exercises...
+            };
+
+            return cueDatabase[exercise.name] || ['Kontrollierte Bewegung', 'Voller Bewegungsumfang'];
+        },
+
+        optimizePlanOrder(plan) {
+            // Reorder exercises based on scientific principles
+            plan.exercises.sort((a, b) => {
+                const exA = FitnessApp.state.exercises.get(a.exerciseId);
+                const exB = FitnessApp.state.exercises.get(b.exerciseId);
+
+                // Compound before isolation
+                if (exA.type !== exB.type) {
+                    return exA.type === 'compound' ? -1 : 1;
+                }
+
+                // Larger muscle groups first
+                const muscleGroupPriority = {
+                    legs: 1,
+                    back: 2,
+                    chest: 3,
+                    shoulders: 4,
+                    arms: 5,
+                    core: 6
+                };
+
+                return muscleGroupPriority[exA.muscleGroup] - muscleGroupPriority[exB.muscleGroup];
+            });
+        }
+    },
+
+    // Workout Session Manager
+    workoutSession: {
+        activeSession: null,
+
+        startSession(planId) {
+            const plan = FitnessApp.state.workoutPlans.get(planId);
+            if (!plan) return;
+
+            this.activeSession = {
+                id: `session_${Date.now()}`,
+                planId,
+                startTime: new Date(),
+                exercises: [],
+                currentExerciseIndex: 0,
+                // Biometric tracking
+                biometrics: {
+                    startingHeartRate: null,
+                    currentHeartRate: null,
+                    caloriesBurned: 0,
+                    hydration: {
+                        consumed: 0,
+                        target: this.calculateHydrationTarget(plan)
+                    }
+                },
+                // Performance metrics
+                performance: {
+                    totalVolume: 0,
+                    avgRestTime: 0,
+                    tempo: 'normal',
+                    rpe: [], // Rate of Perceived Exertion per exercise
+                    formQuality: [] // 1-10 scale
+                },
+                // Environmental factors
+                environment: {
+                    temperature: null,
+                    humidity: null,
+                    timeOfDay: new Date().getHours(),
+                    dayOfWeek: new Date().getDay()
+                }
+            };
+
+            // Initialize exercise tracking
+            plan.exercises.forEach(planExercise => {
+                const exercise = FitnessApp.state.exercises.get(planExercise.exerciseId);
+                const lastPerformance = this.getLastPerformance(exercise.id);
+
+                this.activeSession.exercises.push({
+                    exerciseId: planExercise.exerciseId,
+                    plannedSets: planExercise.sets,
+                    targetWeight: this.calculateTargetWeight(exercise, lastPerformance),
+                    completedSets: [],
+                    notes: '',
+                    formVideos: [],
+                    restTimers: []
+                });
+            });
+
+            FitnessApp.state.currentWorkout = this.activeSession;
+            this.startWorkoutMonitoring();
+        },
+
+        calculateHydrationTarget(plan) {
+            const baseLine = 500; // ml
+            const durationFactor = plan.variables.duration * 10; // 10ml per minute
+            const intensityMultiplier = {
+                low: 1.0,
+                moderate: 1.3,
+                high: 1.6
+            };
+
+            return Math.round(baseLine + durationFactor * intensityMultiplier[plan.variables.intensity]);
+        },
+
+        calculateTargetWeight(exercise, lastPerformance) {
+            if (!lastPerformance) {
+                // First time performing - use conservative estimate
+                return this.estimateStartingWeight(exercise);
+            }
+
+            const progressionRate = FitnessApp.state.currentUser.preferences.volumeIncrease[FitnessApp.state.currentUser.level];
+            const weeksSinceLastPerformed = this.weeksSince(lastPerformance.date);
+
+            // Detraining adjustment
+            let adjustment = 1.0;
+            if (weeksSinceLastPerformed > 2) {
+                adjustment = Math.max(0.9, 1 - (weeksSinceLastPerformed - 2) * 0.025);
+            }
+
+            // Progressive overload
+            const targetWeight = lastPerformance.weight * adjustment * (1 + progressionRate / 100);
+
+            // Round to nearest 2.5kg
+            return Math.round(targetWeight / 2.5) * 2.5;
+        },
+
+        performSet(exerciseIndex, setData) {
+            const sessionExercise = this.activeSession.exercises[exerciseIndex];
+            const exercise = FitnessApp.state.exercises.get(sessionExercise.exerciseId);
+
+            const completedSet = {
+                setNumber: sessionExercise.completedSets.length + 1,
+                weight: setData.weight,
+                reps: setData.reps,
+                rpe: setData.rpe || 7,
+                formQuality: setData.formQuality || 8,
+                tempo: setData.tempo || '2-0-2-0',
+                restTime: 0,
+                timestamp: new Date(),
+                // Calculated metrics
+                volume: setData.weight * setData.reps,
+                intensity: (setData.weight / exercise.metrics.personalRecord) * 100,
+                velocityMetrics: this.calculateVelocityMetrics(setData)
+            };
+
+            sessionExercise.completedSets.push(completedSet);
+
+            // Update exercise metrics
+            this.updateExerciseMetrics(exercise, completedSet);
+
+            // Auto-regulation adjustments
+            this.performAutoRegulation(sessionExercise, completedSet);
+
+            // Start rest timer
+            this.startRestTimer(exerciseIndex, completedSet.setNumber);
+        },
+
+        calculateVelocityMetrics(setData) {
+            // Velocity-based training metrics
+            // In a real app, this would come from accelerometer data
+            const estimatedVelocity = {
+                peak: 0.8 - (setData.rpe - 6) * 0.1, // m/s
+                mean: 0.6 - (setData.rpe - 6) * 0.08
+            };
+
+            return {
+                peakVelocity: estimatedVelocity.peak,
+                meanVelocity: estimatedVelocity.mean,
+                powerOutput: setData.weight * 9.81 * estimatedVelocity.mean,
+                fatigueIndex: 1 - (estimatedVelocity.mean / 0.8)
+            };
+        },
+
+        performAutoRegulation(sessionExercise, completedSet) {
+            // Adjust next set based on performance
+            if (completedSet.rpe >= 9) {
+                // Too hard - reduce weight
+                sessionExercise.targetWeight *= 0.95;
+            } else if (completedSet.rpe <= 6 && completedSet.formQuality >= 9) {
+                // Too easy with good form - increase weight
+                sessionExercise.targetWeight *= 1.05;
+            }
+
+            // Adjust rest time based on performance
+            if (completedSet.rpe >= 8.5) {
+                // Add extra rest
+                return 30; // extra seconds
+            }
+
+            return 0;
+        },
+
+        startRestTimer(exerciseIndex, setNumber) {
+            const exercise = this.activeSession.exercises[exerciseIndex];
+            const plannedRest = FitnessApp.workoutPlanBuilder.calculateOptimalRest(
+                FitnessApp.state.exercises.get(exercise.exerciseId)
+            );
+
+            const timer = {
+                startTime: Date.now(),
+                duration: plannedRest,
+                exerciseIndex,
+                setNumber,
+                interval: null
+            };
+
+            timer.interval = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - timer.startTime) / 1000);
+                const remaining = timer.duration - elapsed;
+
+                if (remaining <= 0) {
+                    clearInterval(timer.interval);
+                    this.onRestComplete(exerciseIndex, setNumber);
+                } else {
+                    this.updateRestTimerUI(remaining, timer.duration);
+                }
+            }, 100);
+
+            exercise.restTimers.push(timer);
+        },
+
+        onRestComplete(exerciseIndex, setNumber) {
+            // Notification and UI update
+            this.showNotification('Rest period complete! Time for next set.');
+
+            // Breathing exercise prompt for heavy sets
+            const exercise = this.activeSession.exercises[exerciseIndex];
+            if (exercise.completedSets.length >= 3) {
+                this.startBreathingExercise();
+            }
+        },
+
+        startBreathingExercise() {
+            const breathingProtocol = {
+                phases: [
+                    { action: 'inhale', duration: 4 },
+                    { action: 'hold', duration: 2 },
+                    { action: 'exhale', duration: 4 },
+                    { action: 'hold', duration: 2 }
+                ],
+                cycles: 3
+            };
+
+            // Implement breathing guide UI
+            UI.showBreathingGuide(breathingProtocol);
+        },
+
+        completeWorkout() {
+            if (!this.activeSession) return;
+
+            this.activeSession.endTime = new Date();
+            this.activeSession.duration = this.activeSession.endTime - this.activeSession.startTime;
+
+            // Calculate session summary
+            const summary = {
+                totalVolume: 0,
+                totalSets: 0,
+                avgRPE: 0,
+                avgFormQuality: 0,
+                musclesWorked: new Set(),
+                caloriesBurned: 0,
+                hydrationConsumed: this.activeSession.biometrics.hydration.consumed
+            };
+
+            this.activeSession.exercises.forEach(exercise => {
+                const exData = FitnessApp.state.exercises.get(exercise.exerciseId);
+                summary.musclesWorked.add(exData.muscleGroup);
+
+                exercise.completedSets.forEach(set => {
+                    summary.totalVolume += set.volume;
+                    summary.totalSets++;
+                    summary.avgRPE += set.rpe;
+                    summary.avgFormQuality += set.formQuality;
+                });
+            });
+
+            summary.avgRPE /= summary.totalSets;
+            summary.avgFormQuality /= summary.totalSets;
+            summary.caloriesBurned = this.estimateCaloriesBurned(summary, this.activeSession.duration);
+
+            // Save to history
+            const workoutRecord = {
+                ...this.activeSession,
+                summary
+            };
+
+            FitnessApp.state.workoutHistory.push(workoutRecord);
+
+            // Update user stats
+            this.updateUserStats(summary);
+
+            // Recovery recommendations
+            const recovery = this.generateRecoveryRecommendations(workoutRecord);
+
+            // Show completion screen
+            UI.showWorkoutComplete(summary, recovery);
+
+            this.activeSession = null;
+            FitnessApp.state.currentWorkout = null;
+        },
+
+        estimateCaloriesBurned(summary, duration) {
+            // MET (Metabolic Equivalent of Task) based calculation
+            const weightTrainingMET = 6.0; // Vigorous weight training
+            const userWeight = 80; // kg (should come from user profile)
+            const hours = duration / (1000 * 60 * 60);
+
+            // Adjust MET based on intensity
+            const intensityMultiplier = summary.avgRPE / 7;
+            const adjustedMET = weightTrainingMET * intensityMultiplier;
+
+            return Math.round(adjustedMET * userWeight * hours);
+        },
+
+        generateRecoveryRecommendations(workout) {
+            const recommendations = {
+                nutrition: [],
+                hydration: [],
+                sleep: [],
+                activeRecovery: [],
+                nextWorkout: null
+            };
+
+            // Nutrition recommendations based on volume
+            if (workout.summary.totalVolume > 10000) {
+                recommendations.nutrition.push({
+                    timing: 'within 30 minutes',
+                    protein: '25-30g',
+                    carbs: '50-60g',
+                    reason: 'High volume workout requires immediate recovery nutrition'
+                });
+            }
+
+            // Hydration
+            const hydrationDeficit = workout.biometrics.hydration.target - workout.biometrics.hydration.consumed;
+            if (hydrationDeficit > 0) {
+                recommendations.hydration.push({
+                    amount: hydrationDeficit + 500, // ml
+                    timing: 'next 2 hours',
+                    type: 'water with electrolytes'
+                });
+            }
+
+            // Sleep recommendations
+            if (workout.summary.avgRPE > 8) {
+                recommendations.sleep.push({
+                    duration: '8-9 hours',
+                    quality: 'prioritize deep sleep',
+                    tips: ['Cool room temperature', 'Magnesium supplement', 'No screens 1hr before bed']
+                });
+            }
+
+            // Active recovery based on muscles worked
+            workout.summary.musclesWorked.forEach(muscle => {
+                recommendations.activeRecovery.push({
+                    activity: `Light ${muscle} stretching`,
+                    duration: '10-15 minutes',
+                    timing: 'tomorrow morning'
+                });
+            });
+
+            // Next workout timing
+            const recoveryTime = this.calculateRecoveryTime(workout);
+            recommendations.nextWorkout = {
+                earliest: new Date(Date.now() + recoveryTime * 60 * 60 * 1000),
+                optimal: new Date(Date.now() + (recoveryTime + 12) * 60 * 60 * 1000),
+                muscleGroups: this.recommendNextMuscleGroups(workout)
+            };
+
+            return recommendations;
+        },
+
+        calculateRecoveryTime(workout) {
+            // Base recovery time in hours
+            let recoveryHours = 24;
+
+            // Adjust based on volume
+            if (workout.summary.totalVolume > 15000) {
+                recoveryHours += 24;
+            } else if (workout.summary.totalVolume > 10000) {
+                recoveryHours += 12;
+            }
+
+            // Adjust based on intensity
+            if (workout.summary.avgRPE > 8.5) {
+                recoveryHours += 12;
+            }
+
+            // Adjust based on user level
+            const levelMultiplier = {
+                beginner: 1.5,
+                intermediate: 1.0,
+                expert: 0.75
+            };
+
+            recoveryHours *= levelMultiplier[FitnessApp.state.currentUser.level];
+
+            return Math.round(recoveryHours);
+        }
+    },
+
+    // Analytics and Progress Tracking
+    analytics: {
+        calculateProgressMetrics() {
+            const metrics = {
+                strength: {},
+                volume: {},
+                frequency: {},
+                consistency: {},
+                recovery: {},
+                overall: {}
+            };
+
+            // Strength progress (1RM estimations)
+            FitnessApp.state.exercises.forEach((exercise, id) => {
+                if (exercise.metrics.performanceHistory.length > 0) {
+                    const oneRM = this.estimateOneRepMax(exercise);
+                    const progressRate = this.calculateProgressRate(exercise);
+
+                    metrics.strength[id] = {
+                        currentMax: oneRM,
+                        progressRate,
+                        trend: exercise.metrics.trend
+                    };
+                }
+            });
+
+            // Volume analysis
+            const volumeByWeek = this.calculateWeeklyVolume();
+            metrics.volume = {
+                current: volumeByWeek[volumeByWeek.length - 1] || 0,
+                average: volumeByWeek.reduce((a, b) => a + b, 0) / volumeByWeek.length,
+                trend: this.calculateTrend(volumeByWeek)
+            };
+
+            // Frequency analysis
+            const workoutsPerWeek = this.calculateWorkoutFrequency();
+            metrics.frequency = {
+                current: workoutsPerWeek[workoutsPerWeek.length - 1] || 0,
+                average: workoutsPerWeek.reduce((a, b) => a + b, 0) / workoutsPerWeek.length,
+                consistency: this.calculateConsistencyScore(workoutsPerWeek)
+            };
+
+            // Recovery metrics
+            metrics.recovery = this.calculateRecoveryMetrics();
+
+            // Overall performance index
+            metrics.overall = this.calculatePerformanceIndex(metrics);
+
+            return metrics;
+        },
+
+        estimateOneRepMax(exercise) {
+            // Epley Formula: 1RM = weight × (1 + reps/30)
+            const recentSets = exercise.metrics.performanceHistory.slice(-10);
+            if (recentSets.length === 0) return 0;
+
+            const estimates = recentSets.map(set => {
+                return set.weight * (1 + set.reps / 30);
+            });
+
+            // Return the highest estimate
+            return Math.max(...estimates);
+        },
+
+        calculateProgressRate(exercise) {
+            const history = exercise.metrics.performanceHistory;
+            if (history.length < 2) return 0;
+
+            const firstMax = this.estimateOneRepMax({
+                metrics: { performanceHistory: history.slice(0, 5) }
+            });
+            const currentMax = this.estimateOneRepMax(exercise);
+
+            const timeSpan = (history[history.length - 1].date - history[0].date) / (1000 * 60 * 60 * 24 * 7); // weeks
+
+            return ((currentMax - firstMax) / firstMax / timeSpan) * 100; // % per week
+        },
+
+        generateProgressReport() {
+            const report = {
+                period: 'last_30_days',
+                summary: {},
+                highlights: [],
+                recommendations: [],
+                visualizations: {}
+            };
+
+            const metrics = this.calculateProgressMetrics();
+
+            // Summary statistics
+            report.summary = {
+                workoutsCompleted: this.countWorkoutsInPeriod(30),
+                totalVolume: this.calculateTotalVolumeInPeriod(30),
+                averageWorkoutDuration: this.calculateAverageWorkoutDuration(30),
+                muscleGroupDistribution: this.calculateMuscleGroupDistribution(30),
+                strengthGains: this.summarizeStrengthGains(metrics.strength)
+            };
+
+            // Identify highlights (achievements)
+            report.highlights = this.identifyAchievements(metrics);
+
+            // Generate recommendations
+            report.recommendations = this.generateTrainingRecommendations(metrics);
+
+            // Prepare visualization data
+            report.visualizations = {
+                volumeChart: this.prepareVolumeChartData(),
+                strengthChart: this.prepareStrengthChartData(),
+                recoveryHeatmap: this.prepareRecoveryHeatmap(),
+                muscleBalanceRadar: this.prepareMuscleBalanceData()
+            };
+
+            return report;
+        },
+
+        identifyAchievements(metrics) {
+            const achievements = [];
+
+            // Check for PRs
+            FitnessApp.state.exercises.forEach((exercise, id) => {
+                const recentHistory = exercise.metrics.performanceHistory.slice(-5);
+                const maxWeight = Math.max(...recentHistory.map(h => h.weight));
+
+                if (maxWeight > exercise.metrics.personalRecord) {
+                    achievements.push({
+                        type: 'personal_record',
+                        exercise: exercise.name,
+                        value: maxWeight,
+                        date: new Date(),
+                        icon: '🏆'
+                    });
+
+                    // Update PR
+                    exercise.metrics.personalRecord = maxWeight;
+                }
+            });
+
+            // Volume milestones
+            if (metrics.volume.current > 50000) {
+                achievements.push({
+                    type: 'volume_milestone',
+                    description: '50,000kg weekly volume achieved!',
+                    icon: '💪'
+                });
+            }
+
+            // Consistency achievements
+            if (metrics.frequency.consistency > 0.9) {
+                achievements.push({
+                    type: 'consistency',
+                    description: 'Training consistency above 90%!',
+                    icon: '🔥'
+                });
+            }
+
+            return achievements;
+        },
+
+        generateTrainingRecommendations(metrics) {
+            const recommendations = [];
+
+            // Volume recommendations
+            if (metrics.volume.trend === 'declining') {
+                recommendations.push({
+                    category: 'volume',
+                    priority: 'high',
+                    suggestion: 'Consider increasing training volume by adding 1-2 sets per muscle group',
+                    reasoning: 'Volume has been declining which may impact progress'
+                });
+            }
+
+            // Recovery recommendations
+            if (metrics.recovery.score < 70) {
+                recommendations.push({
+                    category: 'recovery',
+                    priority: 'critical',
+                    suggestion: 'Implement a deload week or add an extra rest day',
+                    reasoning: 'Recovery score indicates accumulated fatigue'
+                });
+            }
+
+            // Exercise selection
+            const muscleImbalances = this.detectMuscleImbalances(metrics);
+            muscleImbalances.forEach(imbalance => {
+                recommendations.push({
+                    category: 'balance',
+                    priority: 'medium',
+                    suggestion: `Add more ${imbalance.underworked} exercises`,
+                    reasoning: `${imbalance.underworked} is lagging behind ${imbalance.overworked}`
+                });
+            });
+
+            // Progression recommendations
+            const stagnantExercises = this.identifyStagnantExercises(metrics.strength);
+            stagnantExercises.forEach(exercise => {
+                recommendations.push({
+                    category: 'progression',
+                    priority: 'medium',
+                    suggestion: `Change rep range or technique for ${exercise.name}`,
+                    reasoning: 'No progress in the last 3 weeks'
+                });
+            });
+
+            return recommendations;
+        }
+    },
+
+    // Smart Notifications and Reminders
+    notifications: {
+        scheduleReminders() {
+            // Pre-workout reminder
+            const reminderTime = this.calculateOptimalWorkoutTime();
+            this.scheduleNotification({
+                time: reminderTime - 30 * 60 * 1000, // 30 min before
+                message: 'Workout in 30 minutes! Time to prepare.',
+                actions: ['Start warm-up', 'Skip today']
+            });
+
+            // Hydration reminders during workout
+            if (FitnessApp.state.currentWorkout) {
+                this.scheduleHydrationReminders();
+            }
+
+            // Recovery reminders
+            this.scheduleRecoveryReminders();
+        },
+
+        calculateOptimalWorkoutTime() {
+            // Analyze workout history for best performance times
+            const workoutTimes = FitnessApp.state.workoutHistory.map(w => {
+                const hour = new Date(w.startTime).getHours();
+                return {
+                    hour,
+                    performance: w.summary.avgFormQuality
+                };
+            });
+
+            // Find hour with best average performance
+            const hourlyPerformance = {};
+            workoutTimes.forEach(w => {
+                if (!hourlyPerformance[w.hour]) {
+                    hourlyPerformance[w.hour] = [];
+                }
+                hourlyPerformance[w.hour].push(w.performance);
+            });
+
+            let bestHour = 17; // Default 5 PM
+            let bestScore = 0;
+
+            Object.entries(hourlyPerformance).forEach(([hour, scores]) => {
+                const avgScore = scores.reduce((a, b) => a + b) / scores.length;
+                if (avgScore > bestScore) {
+                    bestScore = avgScore;
+                    bestHour = parseInt(hour);
+                }
+            });
+
+            // Return today at optimal hour
+            const optimalTime = new Date();
+            optimalTime.setHours(bestHour, 0, 0, 0);
+            return optimalTime;
+        }
+    },
+
+    // UI Manager
+    UI: {
+        currentView: 'dashboard',
+        animations: {
+            duration: 300,
+            easing: 'cubic-bezier(0.4, 0, 0.2, 1)'
+        },
+
+        init() {
+            this.renderDashboard();
+            this.setupDragAndDrop();
+            this.initializeCharts();
+            this.bindEvents();
+        },
+
+        renderDashboard() {
+            const container = document.getElementById('dashboard-content');
+            const metrics = FitnessApp.analytics.calculateProgressMetrics();
+            const recentWorkouts = FitnessApp.state.workoutHistory.slice(-5);
+
+            container.innerHTML = `
+                <div class="dashboard-header">
+                    <h1 class="greeting">${this.getGreeting()}</h1>
+                    <p class="motivational-quote">${this.getMotivationalQuote()}</p>
+                </div>
+
+                <div class="quick-stats">
+                    ${this.renderQuickStats(metrics)}
+                </div>
+
+                <div class="workout-suggestions">
+                    ${this.renderWorkoutSuggestions()}
+                </div>
+
+                <div class="recent-activity">
+                    <h2>Recent Activity</h2>
+                    ${this.renderRecentWorkouts(recentWorkouts)}
+                </div>
+
+                <div class="progress-summary">
+                    ${this.renderProgressSummary(metrics)}
+                </div>
+            `;
+
+            this.animateElements('.dashboard-header, .quick-stats, .workout-suggestions');
+        },
+
+        getGreeting() {
+            const hour = new Date().getHours();
+            const name = FitnessApp.state.currentUser.name || 'Athlete';
+
+            if (hour < 12) return `Good morning, ${name}! 🌅`;
+            if (hour < 18) return `Good afternoon, ${name}! ☀️`;
+            return `Good evening, ${name}! 🌙`;
+        },
+
+        getMotivationalQuote() {
+            const quotes = [
+                "The pain you feel today will be the strength you feel tomorrow.",
+                "Success starts with self-discipline.",
+                "Your only limit is you.",
+                "Strength doesn't come from what you can do. It comes from overcoming the things you once thought you couldn't.",
+                "The body achieves what the mind believes.",
+                "Don't wish for it. Work for it.",
+                "Push yourself because no one else is going to do it for you."
+            ];
+
+            // Select quote based on performance trend
+            const metrics = FitnessApp.analytics.calculateProgressMetrics();
+            if (metrics.overall.trend === 'improving') {
+                return "Keep up the amazing progress! 🚀";
+            }
+
+            return quotes[Math.floor(Math.random() * quotes.length)];
+        },
+
+        renderExerciseLibrary() {
+            const container = document.getElementById('exercise-library');
+            const exercises = Array.from(FitnessApp.state.exercises.values());
+            const groupedExercises = this.groupExercisesByMuscle(exercises);
+
+            container.innerHTML = `
+                <div class="exercise-controls">
+                    <input type="search" id="exercise-search" placeholder="Search exercises..." />
+                    <button class="btn btn-primary" onclick="FitnessApp.UI.showAddExerciseModal()">
+                        + Add Exercise
+                    </button>
+                </div>
+
+                <div class="exercise-grid">
+                    ${Object.entries(groupedExercises).map(([muscle, exercises]) => `
+                        <div class="muscle-group-section">
+                            <h3>${this.formatMuscleGroup(muscle)}</h3>
+                            <div class="exercise-list">
+                                ${exercises.map(ex => this.renderExerciseCard(ex)).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            this.makeExercisesDraggable();
+        },
+
+        renderExerciseCard(exercise) {
+            const lastPerformed = exercise.metrics.lastPerformed
+                ? this.formatRelativeTime(exercise.metrics.lastPerformed)
+                : 'Never';
+
+            return `
+                <div class="exercise-card" draggable="true" data-exercise-id="${exercise.id}">
+                    <div class="exercise-header">
+                        <h4>${exercise.name}</h4>
+                        <span class="exercise-type">${exercise.type}</span>
+                    </div>
+                    <div class="exercise-stats">
+                        <div class="stat">
+                            <span class="label">PR:</span>
+                            <span class="value">${exercise.metrics.personalRecord}kg</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">Last:</span>
+                            <span class="value">${lastPerformed}</span>
+                        </div>
+                    </div>
+                    ${exercise.notes ? `<div class="exercise-notes">${exercise.notes}</div>` : ''}
+                    <div class="exercise-actions">
+                        <button onclick="FitnessApp.UI.editExercise('${exercise.id}')">Edit</button>
+                        <button onclick="FitnessApp.UI.viewExerciseHistory('${exercise.id}')">History</button>
+                    </div>
+                </div>
+            `;
+        },
+
+        renderWorkoutPlans() {
+            const container = document.getElementById('workout-plans');
+            const plans = Array.from(FitnessApp.state.workoutPlans.values());
+
+            container.innerHTML = `
+                <div class="plans-header">
+                    <h2>Workout Plans</h2>
+                    <button class="btn btn-primary" onclick="FitnessApp.UI.showCreatePlanModal()">
+                        + Create Plan
+                    </button>
+                </div>
+
+                <div class="plans-grid">
+                    ${plans.map(plan => this.renderPlanCard(plan)).join('')}
+                </div>
+
+                <div class="plan-builder" id="plan-builder" style="display: none;">
+                    ${this.renderPlanBuilder()}
+                </div>
+            `;
+        },
+
+        renderPlanCard(plan) {
+            const effectiveness = plan.analytics.effectivenessScore || 0;
+            const exerciseCount = plan.exercises.length;
+
+            return `
+                <div class="plan-card" data-plan-id="${plan.id}">
+                    <div class="plan-header">
+                        <h3>${plan.name}</h3>
+                        <span class="plan-type">${plan.type}</span>
+                    </div>
+                    <p class="plan-description">${plan.description}</p>
+                    <div class="plan-stats">
+                        <div class="stat">
+                            <span class="label">Exercises:</span>
+                            <span class="value">${exerciseCount}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">Completed:</span>
+                            <span class="value">${plan.analytics.timesCompleted}x</span>
+                        </div>
+                        <div class="stat">
+                            <span class="label">Effectiveness:</span>
+                            <span class="value">${effectiveness}%</span>
+                        </div>
+                    </div>
+                    <div class="plan-actions">
+                        <button class="btn btn-primary" onclick="FitnessApp.workoutSession.startSession('${plan.id}')">
+                            Start Workout
+                        </button>
+                        <button onclick="FitnessApp.UI.editPlan('${plan.id}')">Edit</button>
+                        <button onclick="FitnessApp.UI.duplicatePlan('${plan.id}')">Duplicate</button>
+                    </div>
+                </div>
+            `;
+        },
+
+        renderActiveWorkout() {
+            const session = FitnessApp.state.currentWorkout;
+            if (!session) {
+                this.showPlanSelector();
+                return;
+            }
+
+            const currentExercise = session.exercises[session.currentExerciseIndex];
+            const exercise = FitnessApp.state.exercises.get(currentExercise.exerciseId);
+
+            const container = document.getElementById('workout-session');
+            container.innerHTML = `
+                <div class="workout-header">
+                    <h2>${exercise.name}</h2>
+                    <div class="exercise-progress">
+                        Exercise ${session.currentExerciseIndex + 1} of ${session.exercises.length}
+                    </div>
+                </div>
+
+                <div class="exercise-info">
+                    ${exercise.notes ? `<div class="exercise-notes">${exercise.notes}</div>` : ''}
+                    <div class="target-metrics">
+                        <span>Target: ${currentExercise.targetWeight}kg</span>
+                        <span>Sets: ${currentExercise.plannedSets}</span>
+                    </div>
+                </div>
+
+                <div class="sets-container">
+                    ${this.renderSets(currentExercise)}
+                </div>
+
+                <div class="workout-controls">
+                    ${this.renderWorkoutControls(session)}
+                </div>
+
+                <div class="rest-timer" id="rest-timer" style="display: none;">
+                    ${this.renderRestTimer()}
+                </div>
+
+                <div class="workout-stats">
+                    ${this.renderWorkoutStats(session)}
+                </div>
+            `;
+
+            this.bindWorkoutEvents();
+        },
+
+        renderSets(exerciseData) {
+            const completedSets = exerciseData.completedSets;
+            const plannedSets = exerciseData.plannedSets;
+
+            let html = '';
+
+            for (let i = 0; i < plannedSets; i++) {
+                const set = completedSets[i];
+                const isCompleted = !!set;
+                const isActive = i === completedSets.length;
+
+                html += `
+                    <div class="set-row ${isCompleted ? 'completed' : ''} ${isActive ? 'active' : ''}">
+                        <div class="set-number">Set ${i + 1}</div>
+                        <div class="set-inputs">
+                            <input type="number"
+                                   class="weight-input"
+                                   placeholder="Weight"
+                                   value="${set ? set.weight : exerciseData.targetWeight}"
+                                   ${isCompleted ? 'disabled' : ''}
+                                   data-set="${i}">
+                            <span class="unit">kg</span>
+                            <span class="multiply">×</span>
+                            <input type="number"
+                                   class="reps-input"
+                                   placeholder="Reps"
+                                   value="${set ? set.reps : ''}"
+                                   ${isCompleted ? 'disabled' : ''}
+                                   data-set="${i}">
+                            <span class="reps-label">reps</span>
+                        </div>
+                        <div class="set-actions">
+                            ${isActive ? `
+                                <button class="btn btn-primary complete-set" data-set="${i}">
+                                    Complete
+                                </button>
+                            ` : ''}
+                            ${isCompleted ? `
+                                <span class="set-volume">${set.volume}kg</span>
+                                <span class="set-rpe">RPE: ${set.rpe}</span>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return html;
+        },
+
+        animateElements(selector) {
+            const elements = document.querySelectorAll(selector);
+            elements.forEach((el, index) => {
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(20px)';
+
+                setTimeout(() => {
+                    el.style.transition = `opacity ${this.animations.duration}ms ${this.animations.easing},
+                                         transform ${this.animations.duration}ms ${this.animations.easing}`;
+                    el.style.opacity = '1';
+                    el.style.transform = 'translateY(0)';
+                }, index * 50);
+            });
+        },
+
+        showNotification(message, type = 'info', duration = 3000) {
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.innerHTML = `
+                <div class="notification-content">
+                    <span class="notification-icon">${this.getNotificationIcon(type)}</span>
+                    <span class="notification-message">${message}</span>
+                </div>
+            `;
+
+            document.body.appendChild(notification);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                notification.classList.add('notification-visible');
+            });
+
+            // Auto remove
+            setTimeout(() => {
+                notification.classList.remove('notification-visible');
+                setTimeout(() => notification.remove(), 300);
+            }, duration);
+        },
+
+        getNotificationIcon(type) {
+            const icons = {
+                success: '✅',
+                error: '❌',
+                warning: '⚠️',
+                info: 'ℹ️'
+            };
+            return icons[type] || icons.info;
+        }
+    },
+
+    // Data Persistence
+    storage: {
+        save() {
+            const data = {
+                version: '1.0',
+                timestamp: new Date(),
+                user: FitnessApp.state.currentUser,
+                exercises: Array.from(FitnessApp.state.exercises.entries()),
+                exerciseSets: Array.from(FitnessApp.state.exerciseSets.entries()),
+                workoutPlans: Array.from(FitnessApp.state.workoutPlans.entries()),
+                workoutHistory: FitnessApp.state.workoutHistory,
+                preferences: FitnessApp.state.ui
+            };
+
+            try {
+                localStorage.setItem('fitnessAppData', JSON.stringify(data));
+                return true;
+            } catch (e) {
+                console.error('Failed to save data:', e);
+                return false;
+            }
+        },
+
+        load() {
+            try {
+                const stored = localStorage.getItem('fitnessAppData');
+                if (!stored) return false;
+
+                const data = JSON.parse(stored);
+
+                // Restore state
+                FitnessApp.state.currentUser = data.user;
+                FitnessApp.state.exercises = new Map(data.exercises);
+                FitnessApp.state.exerciseSets = new Map(data.exerciseSets);
+                FitnessApp.state.workoutPlans = new Map(data.workoutPlans);
+                FitnessApp.state.workoutHistory = data.workoutHistory;
+                FitnessApp.state.ui = data.preferences;
+
+                return true;
+            } catch (e) {
+                console.error('Failed to load data:', e);
+                return false;
+            }
+        },
+
+        export() {
+            const data = this.prepareExportData();
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `fitness-data-${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+
+            URL.revokeObjectURL(url);
+        },
+
+        import(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    this.validateImportData(data);
+                    this.mergeImportData(data);
+                    FitnessApp.UI.showNotification('Data imported successfully!', 'success');
+                    FitnessApp.UI.renderDashboard();
+                } catch (error) {
+                    FitnessApp.UI.showNotification('Failed to import data: ' + error.message, 'error');
+                }
+            };
+            reader.readAsText(file);
+        }
+    },
+
+    // Initialization
+    init() {
+        this.storage.load();
+        this.UI.init();
+        this.notifications.scheduleReminders();
+
+        // Auto-save every 5 minutes
+        setInterval(() => {
+            this.storage.save();
+        }, 5 * 60 * 1000);
+
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            this.storage.save();
+        });
+    }
+};
+
+// Initialize the app when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    FitnessApp.init();
+});
+
+// Global utility functions
+function formatWeight(weight, unit = 'kg') {
+    return `${weight}${unit}`;
+}
+
+function formatDuration(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) {
+        return `${hours}h ${minutes % 60}m`;
+    }
+    return `${minutes}m ${seconds % 60}s`;
+}
+
+// Export for module usage
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = FitnessApp;
+}
+
+
+    </script>
+</body>
+</html>
+
+
+
+
