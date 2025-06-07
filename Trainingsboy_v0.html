@@ -419,7 +419,7 @@
 
         db: {
             DB_NAME: 'UFT_DB',
-            DB_VERSION: 3,
+            DB_VERSION: 4,
             db: null,
 
             init() {
@@ -1459,7 +1459,7 @@
 
                     // Estimate calories burned
                     session.summary.caloriesBurned = this.analytics.estimateCaloriesBurned(session.summary, state.user, session.duration);
-                    
+
                     // Generate recovery recommendations
                     session.recoveryRecommendations = this.analytics.generateRecoveryRecommendations(session, state.user);
 
@@ -2403,7 +2403,10 @@
                         </div>
                          <div class="form-group"><label for="ex-stabilization">Stabilisierungsbedarf (0-1)</label><input type="number" id="ex-stabilization" name="biomechanics_stabilizationDemand" step="0.1" min="0" max="1" placeholder="0.5"></div>
 
-                        <button type="submit" class="btn btn-primary">Übung speichern</button>
+                        <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                            <button type="button" class="btn btn-secondary" data-action="close-modal" data-modal-id="formModal">Abbrechen</button>
+                            <button type="submit" class="btn btn-primary">Übung speichern</button>
+                        </div>
                     </form>`;
                 this.showModal('formModal');
             },
@@ -2429,7 +2432,10 @@
                         </div>
                         <div class="form-group"><label for="plan-cycleLength">Zykluslänge (Wochen)</label><input type="number" id="plan-cycleLength" name="cycleLength" value="4" min="1"></div>
 
-                        <button type="submit" class="btn btn-primary">Erstellen & Bearbeiten</button>
+                        <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                            <button type="button" class="btn btn-secondary" data-action="close-modal" data-modal-id="formModal">Abbrechen</button>
+                            <button type="submit" class="btn btn-primary">Erstellen & Bearbeiten</button>
+                        </div>
                     </form>`;
                 this.showModal('formModal');
             },
@@ -2460,7 +2466,10 @@
                                 ${exerciseOptionsHTML}
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-primary" ${App.state.exercises.size === 0 ? 'disabled' : ''}>Set erstellen</button>
+                        <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                            <button type="button" class="btn btn-secondary" data-action="close-modal" data-modal-id="formModal">Abbrechen</button>
+                            <button type="submit" class="btn btn-primary" ${App.state.exercises.size === 0 ? 'disabled' : ''}>Set erstellen</button>
+                        </div>
                     </form>`;
                 this.showModal('formModal');
             },
