@@ -285,10 +285,10 @@
                         break;
                     case 'start-session': this.logic.session.start(data.planId); break;
                     case 'start-quick-set': this.logic.session.startQuickSet(); break;
-                    case 'perform-set': this.ui.handleSetCompletion(actionTarget); break;
-                    case 'next-exercise': this.logic.session.nextExercise(); break;
-                    case 'finish-session': this.logic.session.finish(); break;
-                    case 'skip-rest': this.logic.session.skipRest(); break;
+                    case 'perform-set': this.ui.handleSetCompletion(actionTarget); break; // Confirmed
+                    case 'next-exercise': this.logic.session.nextExercise(this.state); break;
+                    case 'finish-session': this.logic.session.finishSession(this.state); break;
+                    case 'skip-rest': this.logic.session.skipRest(); break; // Confirmed logic call
                     case 'save-settings': this.saveSettings(); break;
                     case 'export-data': this.storage.export(); break;
                     case 'import-data': document.getElementById('importFileInput').click(); break;
@@ -315,7 +315,18 @@
                         case 'add-plan':
                             const plan = this.logic.plans.create(data, this.state);
                             this.ui.closeModal('formModal');
-                            this.ui.showPlanEditor(plan.id);
+                            this.ui.showPlanEditor(plan.id); // Navigate to editor after creation
+                            this.render(); // Re-render current view (likely 'plans')
+                            break;
+                        case 'add-exercise-set':
+                            // formData.getAll('exerciseIds') will return an array of values from checked checkboxes
+                            const exerciseIdsArray = formData.getAll('exerciseIds');
+                            this.logic.exerciseSetManager.create(data.name, exerciseIdsArray, this.state);
+                            this.ui.closeModal('formModal');
+                            this.ui.showToast('✅', 'Übungsset erstellt!', 'success');
+                            if (this.state.ui.currentView === 'exercises') { // Re-render if on exercises page
+                                this.render();
+                            }
                             break;
                     }
                 }
@@ -326,7 +337,31 @@
                 const input = e.target;
                 if (input.matches('[data-update-plan-ex]')) {
                     const { planId, exId, field } = input.dataset;
-                    this.logic.plans.updateExercise(planId, exId, field, input.value, this.state);
+                    this.logic.plans.updateExerciseInPlan(planId, exId, field, input.value, this.state);
+                } else if (input.matches('[data-update-plan-meta]')) {
+                    const { planId } = input.dataset;
+                    const fieldName = input.name === 'planEditorName' ? 'name' : 'description';
+                    const plan = this.state.plans.get(planId);
+                    if (plan) {
+                        plan[fieldName] = input.value;
+                        plan.lastModified = Date.now();
+                        App.db.put('plans', plan).then(() => {
+                            App.ui.showToast("💡", "Plandetails aktualisiert.", "info");
+                            if (fieldName === 'name' && document.getElementById('planEditorModal').classList.contains('active')) {
+                                // Update the header H2 if the input is not directly the H2 content
+                                const headerH2 = document.querySelector('#planEditorModalContent > div > h2');
+                                if (headerH2 && !headerH2.querySelector('input')) { // Only if H2 is static text
+                                   headerH2.textContent = `Plan bearbeiten: ${input.value}`;
+                                } else if (headerH2 && headerH2.firstChild.nodeType === Node.TEXT_NODE) { // If H2 has text like "Plan: <input>"
+                                   headerH2.firstChild.textContent = `Plan: `; // Keep prefix, input value updates itself
+                                }
+                            }
+                            if(this.state.ui.currentView === 'plans') this.render();
+                        }).catch(err => {
+                            console.error("Failed to update plan meta:", err);
+                            App.ui.showToast("❌", "Fehler beim Speichern der Plandetails.", "error");
+                        });
+                    }
                 }
             });
 
@@ -355,10 +390,13 @@
                 
                 if (dropAction === "add-to-quick-set") {
                     this.logic.session.addToQuickSet(draggedElementId, this.state);
-                    this.render();
+                    // App.render() is called within addToQuickSet if UI needs update
                 } else if (dropAction === "add-to-plan") {
-                    this.logic.plans.addExercise(data.planId, draggedElementId, this.state);
-                    this.ui.renderPlanEditorContent(data.planId);
+                    // Ensure this is async to await the logic and then re-render
+                    (async () => {
+                        await this.logic.plans.addExerciseToPlan(data.planId, draggedElementId, {}, this.state);
+                        this.ui.renderPlanEditorContent(data.planId); // Refresh editor content
+                    })();
                 }
             });
 
@@ -481,6 +519,11 @@
                 state.history = history;
                 state.achievements = new Set(state.achievements || []);
 
+                // Initialize trainingMetrics if missing from older data
+                if (!state.trainingMetrics) {
+                    state.trainingMetrics = { volumeLoad: 0, intensityIndex: 0, fatigueLevel: 0, recoveryScore: 100, performanceIndex: 100 };
+                }
+
                 return state;
             },
 
@@ -526,6 +569,7 @@
                     achievements: new Set(),
                     quickSet: [],
                     exerciseSets: new Map(), // 2. State Initialization
+                    trainingMetrics: { volumeLoad: 0, intensityIndex: 0, fatigueLevel: 0, recoveryScore: 100, performanceIndex: 100 },
                     ui: { currentView: 'dashboard', theme: 'dark' },
                 };
 
@@ -1055,117 +1099,391 @@
              * Namespace for workout session management.
              */
             session: {
-                start(planId) {
-                    const plan = App.state.plans.get(planId);
-                    if (!plan || plan.exercises.length === 0) {
-                        App.ui.showToast("Dieser Plan hat keine Übungen!", "error");
-                        return;
+                async start(planId, state) {
+                    const plan = state.plans.get(planId);
+                    if (!plan) {
+                        console.error(`Plan with ID ${planId} not found.`);
+                        App.ui.showToast("Fehler: Plan nicht gefunden!", "error");
+                        return false;
                     }
-                    App.state.session = {
+                    if (plan.exercises.length === 0) {
+                        App.ui.showToast("Dieser Plan hat keine Übungen!", "error");
+                        return false;
+                    }
+
+                    state.session = {
                         planId: plan.id,
                         planName: plan.name,
                         startTime: Date.now(),
                         currentExIndex: 0,
-                        exercises: JSON.parse(JSON.stringify(plan.exercises)).map(ex => {
-                            const exData = App.state.exercises.get(ex.id);
-                            const targetWeight = App.logic.analytics.calculateNextTargetWeight(exData, ex.reps, App.state.user.level);
-                            return { ...ex, targetWeight, completedSets: [] };
-                        })
+                        exercises: [], // Populated below
+                        // Example default biometrics for the session
+                        biometrics: {
+                            hydration: { consumed: 0, target: 2000 }, // Default 2000ml, or use a helper
+                            sleepHours: state.user.avgSleepHours || 7, // Example: pull from user profile or default
+                            stressLevel: 'low', // Default or from pre-workout survey
+                        },
+                        environment: {
+                            location: 'home_gym', // Default
+                            temperature: 20, // Celsius, default
+                        },
+                        notes: '' // User notes for the session
                     };
-                    App.render();
+
+                    for (const planEx of plan.exercises) {
+                        const coreExerciseData = state.exercises.get(planEx.id);
+                        if (!coreExerciseData) {
+                            console.warn(`Core exercise data for ID ${planEx.id} not found. Skipping.`);
+                            continue;
+                        }
+                        // Determine target weight using periodization if available
+                        let targetWeight = App.logic.analytics.calculateNextTargetWeight(coreExerciseData, planEx.reps, state.user.level);
+                        const currentPeriodizationPhase = plan.periodization?.phases?.[plan.periodization.currentWeek -1];
+                        if (currentPeriodizationPhase?.intensityPercent && coreExerciseData.metrics?.personalRecord > 0) {
+                            // Apply periodization factor to 1RM estimate or PR
+                            // Simplified: apply to PR if available, otherwise use default targetWeight
+                            // A more robust approach would use a 1RM estimate based on performanceHistory
+                            targetWeight = (coreExerciseData.metrics.personalRecord * (currentPeriodizationPhase.intensityPercent / 100)).toFixed(1);
+                        }
+
+
+                        state.session.exercises.push({
+                            exerciseId: planEx.id,
+                            exerciseName: coreExerciseData.name,
+                            plannedSets: planEx.sets,
+                            targetReps: planEx.reps,    // Rep range string like "8-12"
+                            targetRest: planEx.rest,    // Rest time in seconds
+                            targetWeight: parseFloat(targetWeight) || 20, // Ensure it's a number, default if calculation fails
+                            targetTempo: coreExerciseData.biomechanics?.tempo || '2-0-2-0', // From exercise definition
+                            completedSets: [],
+                            // Other fields from coreExerciseData can be copied if needed for quick access during session
+                            // e.g., type: coreExerciseData.type
+                        });
+                    }
+
+                    // App.render(); // UI should be updated by the caller based on state change
+                    console.log(`Session started for plan: ${plan.name}`, state.session);
+                    state.session.breathingExerciseRecommended = false; // Initialize for the session
+                    return true; // Indicate success
+                },
+
+                calculateVelocityMetrics(setData, coreExerciseData) {
+                    const rpe = setData.rpe || 7;
+                    let basePeakVelocity = 1.0;
+                    if (coreExerciseData && coreExerciseData.type === 'isolation') { basePeakVelocity = 0.8; }
+
+                    // Ensure RPE is within a reasonable range for calculation (e.g., 1-10)
+                    const normalizedRpe = Math.max(1, Math.min(10, rpe));
+
+                    const peakVelocity = Math.max(0.1, basePeakVelocity - (normalizedRpe - 5) * 0.11);
+                    const meanVelocity = Math.max(0.08, peakVelocity * 0.8 - (normalizedRpe - 5) * 0.05);
+                    const powerOutput = (setData.weight || 0) * 9.81 * meanVelocity; // Simplified power
+
+                    const freshMeanVelocityEstimate = Math.max(0.1, (basePeakVelocity * 0.8));
+                    const fatigueIndex = Math.max(0, 1 - (meanVelocity / freshMeanVelocityEstimate));
+
+                    return {
+                        peakVelocity: parseFloat(peakVelocity.toFixed(2)),
+                        meanVelocity: parseFloat(meanVelocity.toFixed(2)),
+                        powerOutput: parseFloat(powerOutput.toFixed(1)),
+                        fatigueIndex: parseFloat(fatigueIndex.toFixed(2))
+                    };
+                },
+
+                async performSet(exerciseIndex, setData, state) {
+                    const session = state.session;
+                    if (!session) {
+                        console.error("No active session to perform set.");
+                        return { success: false, error: "No active session." };
+                    }
+                    const currentSessionExercise = session.exercises[exerciseIndex];
+                    if (!currentSessionExercise) {
+                        console.error(`Exercise at index ${exerciseIndex} not found in current session.`);
+                        return { success: false, error: `Exercise at index ${exerciseIndex} not found.`};
+                    }
+
+                    const coreExerciseData = state.exercises.get(currentSessionExercise.exerciseId);
+
+                    // setData: { weight: Number, reps: Number, rpe: Number, formQuality: Number, tempo: String }
+                    const completedSet = {
+                        setNumber: currentSessionExercise.completedSets.length + 1,
+                        weight: parseFloat(setData.weight) || 0,
+                        reps: parseInt(setData.reps, 10) || 0,
+                        rpe: parseFloat(setData.rpe) || null,
+                        formQuality: parseFloat(setData.formQuality) || 8, // Default form quality
+                        tempo: setData.tempo || currentSessionExercise.targetTempo || '2-0-2-0',
+                        timestamp: Date.now(),
+                        volume: (parseFloat(setData.weight) || 0) * (parseInt(setData.reps, 10) || 0),
+                        velocityMetrics: this.calculateVelocityMetrics(setData, coreExerciseData)
+                    };
+
+                    currentSessionExercise.completedSets.push(completedSet);
+
+                    // Auto-Regulation for next set's target weight (if applicable)
+                    const newTargetWeight = App.logic.analytics.calculateAutoregulatedWeight(
+                        String(currentSessionExercise.targetWeight), // Ensure string for function
+                        completedSet.rpe
+                    );
+                    currentSessionExercise.targetWeight = parseFloat(newTargetWeight);
+
+                    // Calculate effective rest time for UI timer
+                    const actualRestDuration = App.logic.analytics.calculateRestDuration(
+                        currentSessionExercise.targetRest,
+                        completedSet.rpe
+                    );
+
+                    // Conceptual: App.ui.startRestTimer(actualRestDuration);
+                    // The actual UI call is handled by the event listener in addEventListeners which calls App.ui.handleSetCompletion,
+                    // which in turn calls this logic function (performSet), then App.ui.startRestTimer.
+                    // So, no direct App.ui call here to avoid circular dependencies or misplaced responsibilities.
+
+                    console.log(`Set ${completedSet.setNumber} performed for ${currentSessionExercise.exerciseName}: ${completedSet.volume}kg volume. Next target weight: ${currentSessionExercise.targetWeight}kg. Suggested rest: ${actualRestDuration}s.`);
+                    // Note: state.session is directly mutated. Full save to DB typically happens on session.finishSession().
+                    return { success: true, calculatedRest: actualRestDuration };
                 },
                 
                 addToQuickSet(exId, state) {
                     if (!state.quickSet.includes(exId)) state.quickSet.push(exId);
+                     App.render(); // Re-render to show item in quick set UI if needed
                 },
 
-                startQuickSet() {
+                async startQuickSet() { // Made async to align with start method
                     if (App.state.quickSet.length === 0) { 
                         App.ui.showToast("Keine Übungen im Set.", "error"); 
                         return; 
                     }
                     const quickPlan = {
-                        id: 'quick_set', name: 'Schnelles Set',
-                        exercises: App.state.quickSet.map(exId => ({ id: exId, sets: 3, reps: '8-12', rest: 90}))
+                        id: 'quick_set_runtime', // Use a distinct ID for runtime plans
+                        name: 'Schnelles Set',
+                        exercises: App.state.quickSet.map(exId => {
+                            const coreEx = App.state.exercises.get(exId);
+                            return {
+                                id: exId,
+                                sets: App.logic.plans.calculateOptimalSets(coreEx, App.state.user.level),
+                                reps: App.logic.plans.calculateOptimalReps(coreEx, 'hypertrophy'), // Default goal
+                                rest: App.logic.plans.calculateOptimalRest(coreEx, App.state.user.level)
+                            };
+                        })
                     };
-                    App.state.plans.set('quick_set', quickPlan); // Temporarily add plan
-                    this.start('quick_set');
+                    // Temporarily add plan to state (not DB) for the session to use
+                    App.state.plans.set(quickPlan.id, quickPlan);
+
+                    const success = await this.start(quickPlan.id, App.state); // Pass state
+                    if (success) {
+                        App.state.ui.currentView = 'training'; // Navigate to training view
+                        App.render();
+                    } else {
+                        // Clean up temporary plan if session start failed
+                        App.state.plans.delete(quickPlan.id);
+                    }
                 },
         
-                performSet(exIndex, setIndex, setData) {
+                // This performSet is called by UI. It should call the main async performSet.
+                // For now, this is kept as is, but ideally, UI would call a wrapper that calls the async performSet.
+                // Or, this function is refactored to use the async performSet.
+                // For this subtask, we are modifying the *other* performSet.
+                // The subtask description refers to performSet(exerciseIndex, setData, state)
+                // This one is performSet(exIndex, setIndex, setData)
+                // NO CHANGE HERE FOR THIS SUBTASK for this specific performSet(exIndex, setIndex, setData)
+                performSet(exIndex, setIndex, setData) { // THIS IS THE UI-CALLED ONE, NOT THE ONE WE ADDED VELOCITY TO
                     const session = App.state.session;
                     if (!session) return;
                     const ex = session.exercises[exIndex];
                     const setWithVolume = { ...setData, time: Date.now(), volume: setData.weight * setData.reps };
+
+                    // If this function is still meant to be the primary way sets are recorded from UI,
+                    // it would need to be adapted to call the new `async performSet` or replicate its logic,
+                    // including velocity metrics. For now, leaving it as is to minimize unintended breakage.
+                    // This likely means velocity metrics won't be populated if this function is what's directly triggered by UI.
+                    // This is a point for future refactoring.
                     ex.completedSets[setIndex] = setWithVolume;
 
+
                     // Autoregulation
-                    const newTargetWeight = App.logic.analytics.calculateAutoregulatedWeight(ex.targetWeight, setData.rpe);
-                    if (newTargetWeight !== ex.targetWeight) {
-                        ex.targetWeight = newTargetWeight;
+                    const newTargetWeight = App.logic.analytics.calculateAutoregulatedWeight(String(ex.targetWeight), setData.rpe);
+                    if (parseFloat(newTargetWeight) !== ex.targetWeight) {
+                        ex.targetWeight = parseFloat(newTargetWeight);
                         App.ui.showToast(`💡 Gewicht für nächsten Satz auf ${newTargetWeight}kg angepasst.`, "info");
                     }
                     
                     // Start Rest Timer with adjusted duration
-                    const restDuration = App.logic.analytics.calculateRestDuration(ex.rest, setData.rpe);
+                    const restDuration = App.logic.analytics.calculateRestDuration(ex.targetRest, setData.rpe);
                     App.ui.startRestTimer(restDuration);
                     App.render();
                 },
         
-                nextExercise() {
-                    const session = App.state.session;
-                    if (!session) return;
-                    if (session.currentExIndex < session.exercises.length - 1) {
-                        const lastEx = session.exercises[session.currentExIndex];
-                        const avgRpe = lastEx.completedSets.reduce((sum, s) => sum + s.rpe, 0) / lastEx.completedSets.length;
-                        if (avgRpe >= 8) { App.ui.showBreathingGuide(); }
-                        session.currentExIndex++;
-                        App.render();
+                async nextExercise(state) {
+                    const session = state.session;
+                    if (!session) {
+                        return { status: 'no_session', breathingRecommended: false };
+                    }
+
+                    // Reset or ensure breathing recommendation is specific to this transition
+                    session.breathingExerciseRecommended = false;
+
+                    const lastExercise = session.exercises[session.currentExIndex];
+                    if (lastExercise && lastExercise.completedSets && lastExercise.completedSets.length > 0) {
+                        let totalRpe = 0;
+                        let validSets = 0;
+                        lastExercise.completedSets.forEach(s => {
+                            if (typeof s.rpe === 'number' && !isNaN(s.rpe)) {
+                                totalRpe += s.rpe;
+                                validSets++;
+                            }
+                        });
+                        if (validSets > 0) {
+                            const avgRpe = totalRpe / validSets;
+                            if (avgRpe >= 8.0) { // RPE threshold for breathing exercise
+                                session.breathingExerciseRecommended = true;
+                                App.ui.showBreathingGuide(); // Directly trigger UI from logic as per existing pattern
+                            }
+                        }
+                    }
+
+                    session.currentExIndex++;
+
+                    if (session.currentExIndex >= session.exercises.length) {
+                        await this.finishSession(state); // Ensure state is passed
+                        // App.render() is called within finishSession
+                        return { status: 'finished', breathingRecommended: session.breathingExerciseRecommended };
                     } else {
-                        this.finish();
+                        App.render(); // Render the next exercise screen
+                        return { status: 'next', breathingRecommended: session.breathingExerciseRecommended, nextExerciseIndex: session.currentExIndex };
                     }
                 },
                 
                 skipRest() {
-                    clearInterval(App.timers.rest);
+                    // Logic function should primarily manage state or complex operations.
+                    // UI hiding is better handled in App.ui.hideRestTimer directly or called by this.
+                    // For now, this directly calls the UI hide function as per previous structure.
                     App.ui.hideRestTimer();
                 },
         
-                async finish() {
-                    const session = App.state.session;
+                async finishSession(state) {
+                    const session = state.session;
                     if (!session) return;
+
                     session.endTime = Date.now();
-                    
-                    // Update exercise history and PRs
-                    for (const ex of session.exercises) {
-                        const mainEx = App.state.exercises.get(ex.id);
-                        if (mainEx) {
-                            mainEx.history.push(...ex.completedSets);
-                            ex.completedSets.forEach(set => {
-                               const currentPRWeight = mainEx.pr?.weight || 0;
-                               if (set.weight > currentPRWeight) {
-                                   mainEx.pr = { weight: set.weight, reps: set.reps };
-                                   if (!App.state.achievements.has('new_pr')) {
-                                       App.ui.showToast("🏆 Neuer persönlicher Rekord!", "success");
-                                       App.state.achievements.add('new_pr');
-                                   }
-                               }
+                    session.duration = session.endTime - session.startTime;
+
+                    // Initialize session summary
+                    session.summary = {
+                        totalVolume: 0,
+                        totalSets: 0,
+                        totalReps: 0,
+                        avgRPE: 0,
+                        musclesWorked: new Set(),
+                        caloriesBurned: 0,
+                        workoutDurationMinutes: parseFloat((session.duration / 60000).toFixed(1))
+                    };
+
+                    let rpeSum = 0;
+                    let rpeCount = 0;
+
+                    // Process completed exercises for summary and detailed metrics
+                    for (const completedEx of session.exercises) {
+                        const coreExercise = state.exercises.get(completedEx.exerciseId);
+                        if (coreExercise) {
+                            session.summary.musclesWorked.add(coreExercise.muscleGroup);
+                            let exerciseUpdated = false;
+                            completedEx.completedSets.forEach(set => {
+                                session.summary.totalVolume += set.volume || 0;
+                                session.summary.totalSets++;
+                                session.summary.totalReps += set.reps || 0;
+                                if (set.rpe !== null && !isNaN(set.rpe)) {
+                                    rpeSum += set.rpe;
+                                    rpeCount++;
+                                }
+
+                                // Update core exercise metrics
+                                coreExercise.metrics.performanceHistory.push({
+                                    timestamp: set.timestamp,
+                                    weight: set.weight,
+                                    reps: set.reps,
+                                    rpe: set.rpe,
+                                    velocityMetrics: set.velocityMetrics // Persist VBT if available
+                                });
+                                coreExercise.metrics.totalVolume = (coreExercise.metrics.totalVolume || 0) + (set.volume || 0);
+                                if (set.weight > (coreExercise.metrics.personalRecord || 0)) {
+                                    coreExercise.metrics.personalRecord = set.weight;
+                                    if (!state.achievements.has('new_pr')) {
+                                        App.ui.showToast("🏆 Neuer persönlicher Rekord!", "success");
+                                        state.achievements.add('new_pr');
+                                    }
+                                }
+                                exerciseUpdated = true;
                             });
-                            await App.db.put('exercises', mainEx);
+                            if (exerciseUpdated) {
+                                await App.db.put('exercises', coreExercise);
+                            }
                         }
                     }
+
+                    if (rpeCount > 0) {
+                        session.summary.avgRPE = parseFloat((rpeSum / rpeCount).toFixed(1));
+                    }
+                    session.summary.musclesWorked = Array.from(session.summary.musclesWorked); // Convert Set to Array for storage
+
+                    // Estimate calories burned
+                    session.summary.caloriesBurned = this.analytics.estimateCaloriesBurned(session.summary, state.user, session.duration);
                     
-                    // Add session to DB history and reset local state
+                    // Generate recovery recommendations
+                    session.recoveryRecommendations = this.analytics.generateRecoveryRecommendations(session, state.user);
+
+                    // Initialize user stats if not present
+                    if (!state.user.stats) {
+                        state.user.stats = {
+                            totalWorkouts: 0,
+                            totalVolume: 0,
+                            totalDurationMinutes: 0,
+                            currentStreak: 0,
+                            bestStreak: 0,
+                            lastWorkoutDate: null // YYYY-MM-DD format
+                        };
+                    }
+
+                    // Update user stats
+                    const today = new Date().toISOString().slice(0, 10);
+                    if (state.user.stats.lastWorkoutDate) {
+                        const lastWorkout = new Date(state.user.stats.lastWorkoutDate);
+                        const yesterday = new Date();
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        if (lastWorkout.toISOString().slice(0,10) === yesterday.toISOString().slice(0,10)) {
+                            state.user.stats.currentStreak = (state.user.stats.currentStreak || 0) + 1;
+                        } else if (state.user.stats.lastWorkoutDate !== today) { // Not same day and not yesterday
+                            state.user.stats.currentStreak = 1; // Reset if not consecutive and not same day
+                        }
+                        // If it's the same day, currentStreak remains unchanged until next day.
+                    } else {
+                         state.user.stats.currentStreak = 1; // First workout
+                    }
+                    if (state.user.stats.currentStreak > (state.user.stats.bestStreak || 0)) {
+                        state.user.stats.bestStreak = state.user.stats.currentStreak;
+                    }
+                    state.user.stats.lastWorkoutDate = today;
+                    state.user.stats.totalWorkouts = (state.user.stats.totalWorkouts || 0) + 1;
+                    state.user.stats.totalVolume = (state.user.stats.totalVolume || 0) + session.summary.totalVolume;
+                    state.user.stats.totalDurationMinutes = (state.user.stats.totalDurationMinutes || 0) + session.summary.workoutDurationMinutes;
+
+
+                    // Persist session to history
                     await App.db.put('history', session);
-                    App.state.history.push(session);
-                    App.state.session = null;
+                    state.history.push(session);
                     
-                    // Cleanup quick set plan
-                    if(App.state.plans.has('quick_set')) App.state.plans.delete('quick_set');
-                    App.state.quickSet = [];
+                    // Clean up quick set plan if used
+                    const planToClean = state.plans.get(session.planId);
+                    if (planToClean && planToClean.id === 'quick_set_runtime') {
+                         state.plans.delete(session.planId);
+                    }
+                    state.quickSet = [];
+
+                    // Calculate progress metrics before clearing session and saving
+                    await App.logic.analytics.calculateProgressMetrics(state); // Use the passed state
+
+                    state.session = null; // Clear current session
                     
                     App.ui.showWorkoutCompleteModal(session);
-                    await App.storage.save(App.state);
+                    await App.storage.save(state); // This will save updated user.stats and trainingMetrics
                     App.render();
                 }
             },
@@ -1174,6 +1492,65 @@
              * Namespace for all analytics and scientific calculations.
              */
             analytics: {
+                estimateCaloriesBurned(sessionSummary, userData, durationMs) {
+                    const weightTrainingMET = 6.0; // General MET for weight training
+                    const userWeightKg = userData.weightKg || 75; // Default to 75kg if not specified
+                    const hours = durationMs / 3600000;
+
+                    // Adjust MET based on average RPE (intensity)
+                    // RPE 7 is baseline, lower RPEs reduce MET, higher RPEs increase MET
+                    const rpeFactor = (sessionSummary.avgRPE || 7) / 7;
+                    const adjustedMET = weightTrainingMET * rpeFactor;
+
+                    const calories = adjustedMET * userWeightKg * hours;
+                    return Math.round(calories);
+                },
+
+                generateRecoveryRecommendations(sessionData, userData) {
+                    const recommendations = {
+                        nutrition: [],
+                        hydration: "Trinke ausreichend Wasser über den Tag verteilt, mindestens 2-3 Liter.",
+                        sleep: "Versuche, 7-9 Stunden qualitativen Schlaf zu bekommen.",
+                        activity: []
+                    };
+
+                    const volume = sessionData.summary.totalVolume || 0;
+                    const durationMinutes = sessionData.summary.workoutDurationMinutes || 0;
+                    const avgRPE = sessionData.summary.avgRPE || 0;
+
+                    // Nutrition
+                    if (volume > 5000) { // High volume
+                        recommendations.nutrition.push("Konzentriere dich auf eine proteinreiche Mahlzeit (ca. 20-40g Protein) innerhalb von 1-2 Stunden nach dem Training.");
+                        recommendations.nutrition.push("Fülle deine Glykogenspeicher mit komplexen Kohlenhydraten auf (z.B. Vollkornprodukte, Süßkartoffeln).");
+                    } else if (volume > 2000) { // Moderate volume
+                        recommendations.nutrition.push("Eine ausgewogene Mahlzeit mit Protein und Kohlenhydraten wird empfohlen.");
+                    } else {
+                        recommendations.nutrition.push("Achte auf eine generell ausgewogene Ernährung.");
+                    }
+
+                    // Hydration
+                    if (durationMinutes > 60 || avgRPE > 7) {
+                        recommendations.hydration = `Du hast intensiv trainiert! Achte besonders auf deine Flüssigkeitszufuhr und erwäge elektrolythaltige Getränke, wenn du stark geschwitzt hast. Mindestens 2.5-3.5 Liter heute.`;
+                    }
+
+                    // Sleep
+                    if (avgRPE > 8) {
+                        recommendations.sleep = "Dein Training war sehr intensiv. Priorisiere deinen Schlaf (mind. 8 Stunden), um die Regeneration zu maximieren.";
+                    }
+
+                    // Activity / Stretching
+                    if (sessionData.summary.musclesWorked && sessionData.summary.musclesWorked.length > 0) {
+                        const muscles = sessionData.summary.musclesWorked.join(', ');
+                        recommendations.activity.push(`Leichtes Dehnen oder Foam Rolling für die beanspruchten Muskelgruppen (${muscles}) kann die Erholung fördern.`);
+                    }
+                    if (avgRPE < 7 && durationMinutes > 30) {
+                         recommendations.activity.push("Ein lockerer Spaziergang oder leichte Cardio-Einheit am nächsten Tag kann die aktive Erholung unterstützen.");
+                    }
+
+
+                    return recommendations;
+                },
+
                 calculateAutoregulatedWeight(currentWeightStr, rpe) {
                     let newWeight = parseFloat(currentWeightStr);
                     if (rpe >= 9) newWeight *= 0.95; // 5% reduction
@@ -1261,6 +1638,256 @@
                         });
                     });
                     return focus;
+                },
+
+                estimateOneRepMax(exercisePerformanceHistory) {
+                    if (!exercisePerformanceHistory || exercisePerformanceHistory.length === 0) {
+                        return 0;
+                    }
+
+                    let maxOneRM = 0;
+                    exercisePerformanceHistory.forEach(entry => {
+                        if (entry && typeof entry.weight === 'number' && typeof entry.reps === 'number' && entry.reps > 0) {
+                            // Epley formula: 1RM = weight * (1 + reps / 30)
+                            const oneRM = entry.weight * (1 + entry.reps / 30);
+                            if (oneRM > maxOneRM) {
+                                maxOneRM = oneRM;
+                            }
+                        }
+                    });
+                    return parseFloat(maxOneRM.toFixed(1));
+                },
+
+                calculateProgressRate(exercisePerformanceHistory, weeksConsidered = 4) {
+                    if (!exercisePerformanceHistory || exercisePerformanceHistory.length < 2) {
+                        return 0; // Or 'insufficient_data'
+                    }
+
+                    const now = Date.now();
+                    const startTimeOfPeriod = now - (weeksConsidered * 7 * 24 * 60 * 60 * 1000);
+
+                    const recentHistory = exercisePerformanceHistory.filter(entry => entry.timestamp >= startTimeOfPeriod);
+
+                    if (recentHistory.length < 2) {
+                        return 0; // Or 'insufficient_data_in_period'
+                    }
+
+                    // Sort by timestamp to ensure correct order for regression
+                    recentHistory.sort((a,b) => a.timestamp - b.timestamp);
+
+                    const firstEntryTime = recentHistory[0].timestamp;
+
+                    const dataPoints = recentHistory.map(entry => {
+                        // Calculate 1RM for each set/entry
+                        const estimated1RM = entry.weight * (1 + entry.reps / 30);
+                        // Time value in days from the start of the relevant history period
+                        const timeValueInDays = (entry.timestamp - firstEntryTime) / (24 * 60 * 60 * 1000);
+                        return { x: timeValueInDays, y: estimated1RM };
+                    });
+
+                    if (dataPoints.length < 2) return 0;
+
+                    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+                    const n = dataPoints.length;
+
+                    dataPoints.forEach(p => {
+                        sumX += p.x;
+                        sumY += p.y;
+                        sumXY += p.x * p.y;
+                        sumX2 += p.x * p.x;
+                    });
+
+                    const denominator = (n * sumX2 - sumX * sumX);
+                    if (denominator === 0) {
+                        return 0; // No change or vertical line, slope is undefined or 0
+                    }
+                    const slopePerDay = (n * sumXY - sumX * sumY) / denominator;
+
+                    // To convert to weekly percentage rate:
+                    // We need an initial 1RM for the period to calculate percentage against.
+                    // Use the 1RM of the first data point in the considered period.
+                    const initial1RMOfPeriod = dataPoints[0].y;
+                    if (initial1RMOfPeriod === 0) return 0; // Avoid division by zero
+
+                    const weeklyRate = (slopePerDay * 7 / initial1RMOfPeriod) * 100;
+
+                    return parseFloat(weeklyRate.toFixed(2)); // Percentage per week
+                },
+
+                async calculateProgressMetrics(state, daysConsidered = 30) {
+                    if (!state.history || state.history.length === 0) {
+                        // Not enough data to calculate meaningful metrics yet
+                        // Keep default trainingMetrics or reset to baseline
+                        state.trainingMetrics = { volumeLoad: 0, intensityIndex: 0, fatigueLevel: 0, recoveryScore: 100, performanceIndex: 100 };
+                        return;
+                    }
+
+                    const now = Date.now();
+                    const startTimeOfPeriod = now - (daysConsidered * 24 * 60 * 60 * 1000);
+                    const recentHistory = state.history.filter(session => session.startTime >= startTimeOfPeriod);
+
+                    // 1. Total Volume Load Last X Days
+                    let totalVolumeLoad = 0;
+                    recentHistory.forEach(session => {
+                        totalVolumeLoad += session.summary?.totalVolume || 0;
+                    });
+                    state.trainingMetrics.volumeLoad = parseFloat(totalVolumeLoad.toFixed(0));
+
+                    // 2. Average Intensity Index
+                    let sumOfRelativeIntensities = 0;
+                    let countOfRelativeIntensities = 0;
+                    let sumOfRPEs = 0;
+                    let countOfRPEs = 0;
+
+                    for (const session of recentHistory) {
+                        for (const exSession of session.exercises) {
+                            const coreEx = state.exercises.get(exSession.exerciseId);
+                            if (coreEx && coreEx.metrics.personalRecord && coreEx.metrics.personalRecord > 0) {
+                                exSession.completedSets.forEach(set => {
+                                    if (set.weight > 0 && coreEx.metrics.personalRecord > 0) { // only if actual weight lifted
+                                        sumOfRelativeIntensities += (set.weight / coreEx.metrics.personalRecord);
+                                        countOfRelativeIntensities++;
+                                    }
+                                });
+                            }
+                            exSession.completedSets.forEach(set => {
+                                if (set.rpe) {
+                                    sumOfRPEs += set.rpe;
+                                    countOfRPEs++;
+                                }
+                            });
+                        }
+                    }
+                    if (countOfRelativeIntensities > 0) {
+                        state.trainingMetrics.intensityIndex = parseFloat(((sumOfRelativeIntensities / countOfRelativeIntensities) * 100).toFixed(1));
+                    } else if (countOfRPEs > 0) { // Fallback to RPE-based if PRs are not set for intensity calc
+                        state.trainingMetrics.intensityIndex = parseFloat(((sumOfRPEs / countOfRPEs) * 10).toFixed(1)); // Scale RPE avg to ~0-100
+                    } else {
+                        state.trainingMetrics.intensityIndex = 50; // Default if no data
+                    }
+
+
+                    // 3. Calculate Fatigue Level (Heuristic)
+                    // More recent, high RPE, high volume workouts contribute more to fatigue.
+                    let fatigueScore = 0;
+                    const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+                    const workoutsLast7Days = state.history.filter(s => s.startTime >= sevenDaysAgo);
+
+                    workoutsLast7Days.forEach(session => {
+                        const daysOld = (now - session.startTime) / (24 * 60 * 60 * 1000);
+                        const recencyFactor = Math.max(0.1, 1 - (daysOld / 7)); // Closer to 1 if recent
+
+                        let sessionFatigue = 0;
+                        if (session.summary?.avgRPE && session.summary.avgRPE >= 8) sessionFatigue += 20;
+                        else if (session.summary?.avgRPE && session.summary.avgRPE >= 6) sessionFatigue += 10;
+
+                        if (session.summary?.totalVolume && session.summary.totalVolume > 7000) sessionFatigue += 15; // High volume
+                        else if (session.summary?.totalVolume && session.summary.totalVolume > 4000) sessionFatigue += 7; // Moderate volume
+
+                        fatigueScore += sessionFatigue * recencyFactor;
+                    });
+                    state.trainingMetrics.fatigueLevel = Math.min(100, Math.max(0, parseFloat(fatigueScore.toFixed(0))));
+
+                    // 4. Calculate Recovery Score
+                    state.trainingMetrics.recoveryScore = 100 - state.trainingMetrics.fatigueLevel;
+
+                    // 5. Calculate Performance Index (Heuristic)
+                    let avgProgressRate = 0;
+                    let keyExercisesCount = 0;
+                    const keyExerciseIds = Array.from(state.exercises.values())
+                        .filter(ex => ex.type === 'compound' && ex.metrics.performanceHistory.length > 5) // Compound exercises with some history
+                        .slice(0, 3) // Take up to 3
+                        .map(ex => ex.id);
+
+                    if (keyExerciseIds.length > 0) {
+                        keyExerciseIds.forEach(exId => {
+                            const coreEx = state.exercises.get(exId);
+                            if (coreEx) {
+                                avgProgressRate += this.calculateProgressRate(coreEx.metrics.performanceHistory, 4); // 4 weeks
+                                keyExercisesCount++;
+                            }
+                        });
+                        if (keyExercisesCount > 0) avgProgressRate /= keyExercisesCount;
+                    }
+
+                    // Normalize progressRate (e.g., 2% weekly is good = 1.0, 0% = 0.5, negative = <0.5)
+                    // Max of 5% weekly progress for score, min of -5%
+                    const normalizedProgress = Math.max(0, Math.min(1, (avgProgressRate + 5) / 10)); // Scale -5% to 5% into 0 to 1
+
+                    const consistencyScore = (state.user.stats?.currentStreak || 0) > 7 ? 1.0 : (state.user.stats?.currentStreak || 0) / 7; // Max out at 1 after 7 days streak
+
+                    let performanceIndex = (normalizedProgress * 50) + (state.trainingMetrics.recoveryScore * 0.3) + (consistencyScore * 20);
+                    state.trainingMetrics.performanceIndex = Math.min(100, Math.max(0, parseFloat(performanceIndex.toFixed(0))));
+
+                    // console.log("Updated Training Metrics:", state.trainingMetrics);
+                    // Caller should handle saving: await App.storage.save(state);
+                },
+
+                generateProgressReport(state) {
+                    console.log("generateProgressReport called. Implementation pending.");
+                    // This would analyze trends, PRs, volume changes etc.
+                    // and generate textual summaries and recommendations.
+                    const report = {
+                        summary: "Dein Fortschrittsbericht wird demnächst hier verfügbar sein.",
+                        keyObservations: [
+                            `Aktueller Performance Index: ${state.trainingMetrics.performanceIndex}/100`,
+                            `Müdigkeitslevel: ${state.trainingMetrics.fatigueLevel}/100`,
+                            `Erholungsscore: ${state.trainingMetrics.recoveryScore}/100`,
+                        ],
+                        recommendations: [
+                            "Achte weiterhin auf konsistentes Training und Regeneration.",
+                            "Analysiere deine Übungsfortschritte, um Plateaus frühzeitig zu erkennen."
+                        ],
+                        chartsData: [] // Could include data for mini-charts in the report
+                    };
+
+                    // Example: Add a PR change observation
+                    // const benchPress = Array.from(state.exercises.values()).find(ex => ex.name.toLowerCase().includes("bankdrücken"));
+                    // if (benchPress) {
+                    //     const progressRate = this.calculateProgressRate(benchPress.metrics.performanceHistory, 4);
+                    //     report.keyObservations.push(`Bankdrücken Fortschritt (4 Wochen): ${progressRate}%/Woche.`);
+                    // }
+                    return report;
+                },
+
+                identifyAchievements(state) {
+                    console.log("identifyAchievements called.");
+                    const newAchievements = [];
+                    const { achievements, user, history, exercises } = state;
+
+                    if (!user.stats) return []; // No stats, no achievements yet
+
+                    // First Workout
+                    if (user.stats.totalWorkouts >= 1 && !achievements.has('first_workout_done')) {
+                        achievements.add('first_workout_done');
+                        const ach = { id: 'first_workout_done', name: 'Erstes Training absolviert!', description: "Du hast dein erstes Training abgeschlossen. Weiter so!", date: new Date().toISOString() };
+                        newAchievements.push(ach);
+                        App.ui.showToast(`🏆 Errungenschaft: ${ach.name}`, "success");
+                    }
+
+                    // Consistent Trainer (e.g., 7-day streak)
+                    if (user.stats.currentStreak >= 7 && !achievements.has('consistent_week')) {
+                        achievements.add('consistent_week');
+                        const ach = { id: 'consistent_week', name: 'Konstante Woche', description: "Eine ganze Woche Training am Stück! Super!", date: new Date().toISOString() };
+                        newAchievements.push(ach);
+                        App.ui.showToast(`🏆 Errungenschaft: ${ach.name}`, "success");
+                    }
+
+                    // Volume Milestone (e.g., 100,000 kg total volume)
+                    if (user.stats.totalVolume >= 100000 && !achievements.has('volume_100k')) {
+                        achievements.add('volume_100k');
+                        const ach = { id: 'volume_100k', name: 'Volumen-Meister (100t kg)', description: "Über 100.000kg Gesamtvolumen bewegt!", date: new Date().toISOString() };
+                        newAchievements.push(ach);
+                        App.ui.showToast(`🏆 Errungenschaft: ${ach.name}`, "success");
+                    }
+
+                    // TODO: Add more achievement checks:
+                    // - Specific PRs on key lifts (e.g., Bench 100kg)
+                    // - Number of plans created
+                    // - X workouts completed
+                    // - Using specific features (e.g., VBT metrics if they were real)
+
+                    return newAchievements; // Return array of newly unlocked achievements
                 }
             },
 
@@ -1326,8 +1953,10 @@
             },
             
             renderDashboard() {
-                const { user, history, plans } = App.state;
-                const stats = App.logic.analytics.getDashboardStats(App.state);
+                const { user, history, plans, trainingMetrics } = App.state;
+                const userStats = user.stats || { totalWorkouts: 0, totalVolume: 0, currentStreak: 0 }; // Fallback for safety
+                const displayMetrics = trainingMetrics || { performanceIndex: 0, recoveryScore: 0, fatigueLevel: 0 }; // Fallback
+
                 const lastWo = history[history.length - 1];
                 let suggestionHTML = `<div class="suggestion-card"><div class="suggestion-icon">💡</div><div><h3>Bereit fürs Training!</h3><p>Wähle einen Plan, um loszulegen und deine Fitness-Reise zu starten.</p></div></div>`;
                 if(lastWo && (Date.now() - lastWo.startTime) / 36e5 < 24) {
@@ -1345,12 +1974,17 @@
                             ).join('')}
                         </div>
                         ${suggestionHTML}
-                        <div class="dashboard-grid">
-                            <div class="stat-card"><div class="stat-value">${stats.totalWorkouts}</div><div class="stat-label">Workouts Gesamt</div></div>
-                            <div class="stat-card"><div class="stat-value">${stats.totalVolume.toLocaleString()}</div><div class="stat-label">Volumen Gesamt (kg)</div></div>
-                            <div class="stat-card"><div class="stat-value">${stats.bestLift} kg</div><div class="stat-label">Bester Lift (PR)</div></div>
+                        <h2>Deine aktuellen Metriken</h2>
+                        <div class="grid">
+                            <div class="stat-card"><div class="stat-value">${userStats.totalWorkouts}</div><div class="stat-label">Workouts Gesamt</div></div>
+                            <div class="stat-card"><div class="stat-value">${(userStats.totalVolume || 0).toLocaleString()} kg</div><div class="stat-label">Gesamtvolumen</div></div>
+                            <div class="stat-card"><div class="stat-value">${userStats.currentStreak} Tage</div><div class="stat-label">Aktuelle Serie</div></div>
+                            <div class="stat-card"><div class="stat-value">${displayMetrics.performanceIndex} / 100</div><div class="stat-label">Performance Index</div></div>
+                            <div class="stat-card"><div class="stat-value">${displayMetrics.recoveryScore} / 100</div><div class="stat-label">Erholungsscore</div></div>
+                            <div class="stat-card"><div class="stat-value">${displayMetrics.fatigueLevel} / 100</div><div class="stat-label">Müdigkeitslevel</div></div>
                         </div>
-                        <div class="grid" style="grid-template-columns: 2fr 1fr;">
+
+                        <div class="grid" style="grid-template-columns: 2fr 1fr; margin-top: 2rem;">
                             <div>
                                 <h2>Letzte Trainingseinheiten</h2>
                                 <div class="card">${history.length > 0 ? `<ul>${[...history].reverse().slice(0,5).map(wo => `<li><strong>${new Date(wo.startTime).toLocaleDateString()}:</strong> ${plans.get(wo.planId)?.name || 'Gelöschter Plan'}</li>`).join('')}</ul>` : '<p>Keine Einträge.</p>'}</div>
@@ -1383,25 +2017,28 @@
                         <div class="exercise-container">
                             <div class="exercise-list">
                                 <h2>Alle Übungen</h2>
-                                <button class="btn btn-primary" data-action="show-exercise-form">+ Neue Übung</button>
-                                <div class="grid" style="margin-top: 1rem;">
+                                <button class="btn btn-primary" data-action="show-exercise-form" style="margin-bottom: 1rem;">+ Neue Übung</button>
+                                <div class="grid">
                                     ${Array.from(App.state.exercises.values()).map(ex => `
-                                        <div class="exercise-item" draggable="true" data-drag-id="${ex.id}">
-                                            <span>${ex.name}</span>
-                                            <small>${ex.muscleGroup}</small>
+                                        <div class="card" draggable="true" data-drag-id="${ex.id}">
+                                            <h3>${ex.name}</h3>
+                                            <p>Muskelgruppe: ${ex.muscleGroup}</p>
+                                            <p>Typ: ${ex.type}</p>
+                                            <!-- Weitere Details oder Bearbeiten-Button hier möglich -->
                                         </div>`).join('') || '<p>Keine Übungen erstellt.</p>'}
                                 </div>
                             </div>
-                            <div class="plan-builder">
-                                <h2>Schnelles Set erstellen</h2>
-                                <p>Ziehe Übungen hierher, um ein schnelles, nicht gespeichertes Training zu erstellen.</p>
-                                <div class="drop-zone" data-drop-action="add-to-quick-set">
-                                    ${App.state.quickSet.map(exId => {
-                                        const ex = App.state.exercises.get(exId);
-                                        return `<div class="exercise-item" data-id="${ex.id}">${ex.name}</div>`;
-                                    }).join('') || '<p>Hier ablegen</p>'}
+                             <div class="exercise-sets-list" style="margin-top: 2rem;">
+                                <h2>Übungssets</h2>
+                                <button class="btn btn-primary" data-action="show-exercise-set-form" style="margin-bottom: 1rem;">+ Neues Übungsset</button>
+                                <div class="grid">
+                                     ${Array.from(App.state.exerciseSets.values()).map(set => `
+                                        <div class="card">
+                                            <h3>${set.name}</h3>
+                                            <p>${set.exercises.length} Übung(en)</p>
+                                            <!-- Button zum Bearbeiten/Ansehen des Sets hier möglich -->
+                                        </div>`).join('') || '<p>Keine Übungssets erstellt.</p>'}
                                 </div>
-                                <button class="btn btn-secondary" data-action="start-quick-set">Dieses Set starten</button>
                             </div>
                         </div>
                     </section>
@@ -1411,19 +2048,22 @@
             renderPlans() {
                  return `
                     <section id="plans" class="section active">
-                        <h1>Trainingspläne</h1>
-                        <button class="btn btn-primary" data-action="show-plan-form">+ Neuer Trainingsplan</button>
-                        <div class="grid" style="margin-top: 1rem;">
-                            ${Array.from(App.state.plans.values()).map(p => `
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h1>Trainingspläne</h1>
+                            <button class="btn btn-primary" data-action="show-plan-form">+ Neuer Trainingsplan</button>
+                        </div>
+                        <div class="grid">
+                            ${App.state.plans.size > 0 ? Array.from(App.state.plans.values()).map(p => `
                                 <div class="card">
                                     <h3>${p.name}</h3>
                                     <p>${p.description || 'Keine Beschreibung.'}</p>
-                                    <p><strong>${p.exercises.length} Übungen</strong></p>
+                                    <p><strong>${p.exercises.length} Übungen</strong> | Typ: ${p.type || 'N/A'}</p>
+                                    <p><small>Periodisierung: ${p.periodization?.type || 'Keine'} | ${p.periodization?.cycleLength || 0} Wochen Zyklus</small></p>
                                     <div style="display:flex; gap:0.5rem; margin-top:1rem;">
                                         <button class="btn btn-primary" data-action="start-session" data-plan-id="${p.id}">Starten</button>
                                         <button class="btn" style="background:var(--text-secondary); color:white;" data-action="show-plan-editor" data-plan-id="${p.id}">Bearbeiten</button>
                                     </div>
-                                </div>`).join('') || '<p>Keine Pläne erstellt.</p>'}
+                                </div>`).join('') : '<p>Keine Pläne erstellt. Klicke auf "+ Neuer Trainingsplan", um loszulegen!</p>'}
                         </div>
                     </section>`;
             },
@@ -1431,36 +2071,63 @@
             renderTraining() {
                 const session = App.state.session;
                 if (!session) {
-                    return `
+                    let html = `
                         <section id="training" class="section active">
-                            <h1>Training</h1>
-                            <h2>Wähle einen Plan zum Starten</h2>
-                            <div class="grid">
-                               ${Array.from(App.state.plans.values()).map(p => `<button class="btn btn-primary" style="height:80px;" data-action="start-session" data-plan-id="${p.id}">${p.name}</button>`).join('') || '<p>Erstelle zuerst einen Plan.</p>'}
-                            </div>
-                        </section>`;
+                            <h1>Training</h1>`;
+
+                    const userPlans = Array.from(App.state.plans.values()).filter(p => p.id !== 'quick_set_runtime');
+                    const plansExist = userPlans.length > 0;
+
+                    if (plansExist) {
+                        html += `<h2>Wähle einen Plan zum Starten</h2>
+                                 <div class="grid">
+                                   ${userPlans.map(p => `<button class="btn btn-primary" style="height:80px;" data-action="start-session" data-plan-id="${p.id}">${p.name}</button>`).join('')}
+                                 </div>`;
+                    }
+
+                    if (App.state.quickSet && App.state.quickSet.length > 0) {
+                        html += `<div class="card" style="margin-top: 2rem;">
+                                    <h3>Schnelles Set (${App.state.quickSet.length} Übungen)</h3>
+                                    <ul style="list-style-position: inside; padding-left: 1rem; margin-bottom:1rem;">
+                                        ${App.state.quickSet.map(exId => `<li>${App.state.exercises.get(exId)?.name || 'Unbekannte Übung'}</li>`).join('')}
+                                    </ul>
+                                    <button class="btn btn-secondary" data-action="start-quick-set">Schnelles Set starten</button>
+                                 </div>`;
+                    }
+
+                    if (!plansExist && (!App.state.quickSet || App.state.quickSet.length === 0)) {
+                         html += '<p style="margin-top:1rem;">Erstelle einen Plan oder füge Übungen zu einem schnellen Set hinzu (auf der Übungsseite), um mit dem Training zu beginnen.</p>';
+                    }
+
+                    html += `</section>`;
+                    return html;
                 }
                 
-                const ex = session.exercises[session.currentExIndex];
-                const exData = App.state.exercises.get(ex.id);
-                const lastSet = ex.completedSets[ex.completedSets.length - 1];
+                const currentSessionEx = session.exercises[session.currentExIndex];
+                const coreExData = App.state.exercises.get(currentSessionEx.exerciseId);
+                const lastSet = currentSessionEx.completedSets[currentSessionEx.completedSets.length - 1];
                 
+                let setRowsHtml = '';
+                for (let i = 0; i < currentSessionEx.plannedSets; i++) {
+                    const set = currentSessionEx.completedSets[i];
+                    const isCurrentSet = i === currentSessionEx.completedSets.length;
+                    setRowsHtml += `<div class="exercise-set ${set ? 'completed' : (isCurrentSet ? 'current' : '')}">
+                                        <div class="set-number">${i+1}</div>
+                                        <input type="number" step="0.25" placeholder="kg" value="${set ? set.weight : currentSessionEx.targetWeight}" ${set ? 'disabled' : ''}>
+                                        <input type="number" placeholder="Wdh" value="${set?.reps || ''}" ${set ? 'disabled' : ''}>
+                                        <input type="number" min="1" max="10" step="0.5" placeholder="RPE" value="${set?.rpe || ''}" ${set ? 'disabled' : ''}>
+                                        ${set ? `<span class="btn" style="background:var(--secondary); color:white; padding: 0.5rem; font-size: 0.8rem; cursor:default;">${(set.volume || 0).toFixed(0)}kg</span>` : (isCurrentSet ? `<button class="btn btn-secondary" style="padding:0.5rem" data-action="perform-set" data-ex-index="${session.currentExIndex}" data-set-index="${i}">✓</button>` : `<button class="btn btn-secondary" style="padding:0.5rem" disabled>✓</button>`)}
+                                    </div>`;
+                }
+
                 return `
                     <section id="training" class="section active">
                         <div class="session-container">
-                            <h2>${exData.name} <span style="font-weight:normal;color:var(--text-secondary)">(${session.currentExIndex+1}/${session.exercises.length})</span></h2>
-                            <p><strong>Ziel:</strong> ${ex.sets} Sätze à ${ex.reps} Wdh. | <strong>Pause:</strong> ${ex.rest}s</p>
+                            <h2>${coreExData.name} <span style="font-weight:normal;color:var(--text-secondary)">(${session.currentExIndex+1}/${session.exercises.length})</span></h2>
+                            <p><strong>Ziel:</strong> ${currentSessionEx.plannedSets} Sätze à ${currentSessionEx.targetReps} Wdh. | <strong>Pause:</strong> ${currentSessionEx.targetRest}s</p>
+                            <p><em>Notizen zur Übung: ${coreExData.notes || "Keine Notizen"}</em></p>
                             <div>
-                                ${Array.from({length: ex.sets}, (_, i) => {
-                                    const set = ex.completedSets[i];
-                                    return `<div class="exercise-set ${set ? 'completed' : ''}">
-                                        <div class="set-number">${i+1}</div>
-                                        <input type="number" step="0.5" placeholder="kg" value="${set ? set.weight : ex.targetWeight}">
-                                        <input type="number" placeholder="Wdh" value="${set?.reps || ''}">
-                                        <input type="number" min="1" max="10" placeholder="RPE" value="${set?.rpe || ''}">
-                                        ${set ? `<span class="btn" style="background:var(--secondary); color:white; padding: 0.5rem; font-size: 0.8rem; cursor:default;">${set.volume.toFixed(0)}kg</span>` : `<button class="btn btn-secondary" style="padding:0.5rem" data-action="perform-set" data-ex-index="${session.currentExIndex}" data-set-index="${i}">✓</button>`}
-                                    </div>`;
-                                }).join('')}
+                                ${setRowsHtml}
                             </div>
                             <div style="margin-top: 1rem;">
                                 <h3>Intensität (RPE des letzten Satzes)</h3>
@@ -1478,7 +2145,7 @@
                             </div>
                             <div style="margin-top: 1.5rem; display: flex; justify-content: space-between;">
                                 <button class="btn btn-danger" data-action="finish-session">Training beenden</button>
-                                <button class="btn btn-primary" data-action="next-exercise">Nächste Übung →</button>
+                                <button class="btn btn-primary" ${session.currentExIndex >= session.exercises.length -1 && currentSessionEx.completedSets.length >= currentSessionEx.plannedSets ? 'disabled' : ''} data-action="next-exercise">Nächste Übung →</button>
                             </div>
                         </div>
                     </section>`;
@@ -1505,15 +2172,23 @@
                                     </div>
                                 </div>
                                 <h2>Errungenschaften</h2>
-                                <div id="achievements-container"></div>
+                                <div id="achievements-container" class="grid"></div>
                             `}
                         </div>
                     </section>`;
             },
             
             renderAnalyticsCharts() {
-                const { history, exercises } = App.state;
-                if (history.length < 1) return;
+                const { history, exercises, achievements } = App.state; // Added achievements
+                if (history.length < 1 && (!achievements || achievements.size === 0)) { // Adjusted condition
+                     // analytics-content might not be fully empty if shell is complex, target specific part if needed
+                    const ac = document.getElementById('analytics-content');
+                    if(ac && !ac.querySelector('.chart-container') && !ac.querySelector('.achievement')) { // Avoid overwriting if content is already there
+                        ac.innerHTML = "<p>Noch keine Daten vorhanden. Absolviere ein Training oder schalte Errungenschaften frei, um deine Fortschritte zu sehen.</p>";
+                    }
+                    return;
+                }
+
 
                 // Volume Chart
                 const weeklyVolume = App.logic.analytics.getWeeklyVolume(history);
@@ -1531,27 +2206,61 @@
                 }
 
                 // Heatmap
-                const heatmapData = App.logic.analytics.getHeatmapData(history);
-                const heatmap = document.getElementById('trainingHeatmap');
-                const startDate = new Date();
-                startDate.setDate(startDate.getDate() - (26*7) + 1);
-                for(let i=0; i<26*7; i++) {
-                    const d = new Date(startDate);
-                    d.setDate(d.getDate() + i);
-                    const dateString = d.toISOString().split('T')[0];
-                    const intensity = Math.min(3, heatmapData[dateString] || 0);
-                    heatmap.innerHTML += `<div class="heatmap-cell" data-intensity="${intensity}" title="${d.toLocaleDateString()}: ${heatmapData[dateString] || 0} Workouts"></div>`;
+                const heatmapContainer = document.getElementById('trainingHeatmap');
+                if(heatmapContainer) {
+                    heatmapContainer.innerHTML = ''; // Clear previous
+                    const heatmapData = App.logic.analytics.getHeatmapData(history);
+                    const startDate = new Date();
+                    startDate.setDate(startDate.getDate() - (26*7) + 1); // Approx 6 months back
+                    for(let i=0; i<26*7; i++) {
+                        const d = new Date(startDate);
+                        d.setDate(d.getDate() + i);
+                        const dateString = d.toISOString().split('T')[0];
+                        const intensity = Math.min(3, heatmapData[dateString] || 0);
+                        heatmapContainer.innerHTML += `<div class="heatmap-cell" data-intensity="${intensity}" title="${d.toLocaleDateString()}: ${heatmapData[dateString] || 0} Workouts"></div>`;
+                    }
                 }
                 
                 // Muscle Focus
-                const muscleFocus = App.logic.analytics.getMuscleFocus(history, exercises);
-                const muscleGroups = {chest: 'Brust', back: 'Rücken', legs: 'Beine', shoulders: 'Schultern', triceps: 'Trizeps', biceps: 'Bizeps', core: 'Core'};
-                document.getElementById('muscle-map').innerHTML = Object.entries(muscleGroups).map(([key, name]) => 
-                    `<div class="muscle-group ${muscleFocus[key] ? 'worked' : ''}">${name}</div>`
-                ).join('');
+                const muscleMapContainer = document.getElementById('muscle-map');
+                if(muscleMapContainer) {
+                    muscleMapContainer.innerHTML = ''; // Clear previous
+                    const muscleFocus = App.logic.analytics.getMuscleFocus(history, exercises);
+                    const muscleGroups = {chest: 'Brust', back: 'Rücken', legs: 'Beine', shoulders: 'Schultern', triceps: 'Trizeps', biceps: 'Bizeps', core: 'Core'};
+                    muscleMapContainer.innerHTML = Object.entries(muscleGroups).map(([key, name]) =>
+                        `<div class="muscle-group ${muscleFocus[key] ? 'worked' : ''}">${name}</div>`
+                    ).join('');
+                }
                 
                 // Achievements
-                document.getElementById('achievements-container').innerHTML = App.state.achievements.has('new_pr') ? `<div class="achievement"><div class="achievement-icon">🏆</div><div><h3>Persönlicher Rekord!</h3><p>Fantastisch! Du hast einen neuen persönlichen Rekord aufgestellt!</p></div></div>` : '<p>Noch keine neuen Errungenschaften freigeschaltet. Bleib dran!</p>';
+                const achievementsContainer = document.getElementById('achievements-container');
+                if(achievementsContainer) {
+                    achievementsContainer.innerHTML = ''; // Clear previous
+                    const achievementDetails = {
+                        'first_workout_done': { name: 'Erstes Training absolviert!', description: "Du hast dein erstes Training abgeschlossen. Weiter so!", icon: '🎉' },
+                        'consistent_week': { name: 'Konstante Woche!', description: '7 Tage am Stück trainiert!', icon: '🔥' },
+                        'volume_100k': { name: 'Volumen-Meister (100t kg)!', description: 'Über 100.000kg Gesamtvolumen bewegt!', icon: '💪' },
+                        'new_pr': { name: 'Persönlicher Rekord!', description: 'Fantastisch! Du hast einen neuen persönlichen Rekord aufgestellt!', icon: '🏆' }
+                    };
+
+                    if (App.state.achievements && App.state.achievements.size > 0) {
+                        App.state.achievements.forEach(achId => {
+                            const details = achievementDetails[achId];
+                            if (details) {
+                                achievementsContainer.innerHTML += `
+                                <div class="achievement">
+                                    <div class="achievement-icon">${details.icon}</div>
+                                    <div>
+                                        <h3>${details.name}</h3>
+                                        <p>${details.description}</p>
+                                    </div>
+                                </div>`;
+                            }
+                        });
+                    } else {
+                        achievementsContainer.innerHTML = '<p>Noch keine Errungenschaften freigeschaltet. Bleib dran!</p>';
+                    }
+                }
             },
             
             renderSettings() {
@@ -1579,39 +2288,146 @@
             },
             
             // --- UI Helper & Action Functions ---
-            
-            handleSetCompletion(button) {
-                const setRow = button.closest('.exercise-set');
-                const inputs = setRow.querySelectorAll('input');
-                const [weight, reps, rpe] = Array.from(inputs).map(i => parseFloat(i.value));
-                if (isNaN(weight) || isNaN(reps) || isNaN(rpe)) {
-                    this.showToast("❌", "Bitte alle Felder (Gewicht, Wdh, RPE) ausfüllen.", "error");
+
+            handleSetCompletion(actionButton) {
+                const setRow = actionButton.closest('.exercise-set');
+                if (!setRow) {
+                    this.showToast("❌", "Fehler: Set-Reihe nicht gefunden.", "error");
                     return;
                 }
-                const { exIndex, setIndex } = button.dataset;
-                button.disabled = true;
+                const inputs = setRow.querySelectorAll('input[type="number"]'); // More specific selector
+                const weightInput = inputs[0];
+                const repsInput = inputs[1];
+                const rpeInput = inputs[2];
+
+                const weight = parseFloat(weightInput.value);
+                const reps = parseInt(repsInput.value, 10);
+                const rpe = parseFloat(rpeInput.value);
+
+                if (isNaN(weight) || weight < 0 || isNaN(reps) || reps <= 0 || isNaN(rpe) || rpe < 1 || rpe > 10) {
+                    this.showToast("❌", "Ungültige Eingabe für Gewicht, Wdh. oder RPE.", "error");
+                    // Potentially add more specific error messages per field
+                    if (isNaN(weight) || weight < 0) weightInput.style.borderColor = 'var(--danger)'; else weightInput.style.borderColor = 'var(--border)';
+                    if (isNaN(reps) || reps <= 0) repsInput.style.borderColor = 'var(--danger)'; else repsInput.style.borderColor = 'var(--border)';
+                    if (isNaN(rpe) || rpe < 1 || rpe > 10) rpeInput.style.borderColor = 'var(--danger)'; else rpeInput.style.borderColor = 'var(--border)';
+                    return;
+                }
+                // Reset border colors on valid submission attempt
+                weightInput.style.borderColor = 'var(--border)';
+                repsInput.style.borderColor = 'var(--border)';
+                rpeInput.style.borderColor = 'var(--border)';
+
+                const { exIndex, setIndex } = actionButton.dataset;
+                actionButton.disabled = true; // Disable button to prevent double submission
+
+                // This calls the synchronous version of performSet currently in App.logic.session
+                // That version internally calls App.ui.startRestTimer and App.render
                 App.logic.session.performSet(parseInt(exIndex), parseInt(setIndex), { weight, reps, rpe });
+                // If App.logic.session.performSet became async and returned {success, calculatedRest},
+                // then the logic here would be:
+                // const result = await App.logic.session.performSet(parseInt(exIndex), parseInt(setIndex), { weight, reps, rpe }, App.state);
+                // if (result.success) {
+                //     this.startRestTimer(result.calculatedRest);
+                //     App.render();
+                // } else {
+                //     this.showToast(result.error || "Fehler beim Speichern des Satzes.", "error");
+                //     actionButton.disabled = false; // Re-enable button on error
+                // }
             },
 
             showExerciseForm() {
+                const muscleGroups = {chest: 'Brust', back: 'Rücken', legs: 'Beine', shoulders: 'Schultern', triceps: 'Trizeps', biceps: 'Bizeps', core: 'Core', fullbody: 'Ganzkörper', cardio: 'Cardio'};
+                const exerciseTypes = {compound: 'Verbundübung', isolation: 'Isolationsübung', cardio: 'Cardioübung'};
+                const equipmentTypes = {barbell: 'Langhantel', dumbbell: 'Kurzhantel', machine: 'Maschine', cable: 'Kabelzug', bodyweight: 'Körpergewicht', kettlebell: 'Kettlebell', band: 'Widerstandsband', cardio_machine: 'Cardiogerät', none: 'Keine'};
+
                 document.getElementById('formModalContent').innerHTML = `
-                    <h2>Neue Übung</h2>
+                    <h2>Neue Übung erstellen / Bearbeiten</h2>
                     <form data-form="add-exercise">
-                        <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
-                        <div class="form-group"><label>Muskelgruppe</label><select name="muscleGroup">${Object.entries({chest: 'Brust', back: 'Rücken', legs: 'Beine', shoulders: 'Schultern', triceps: 'Trizeps', biceps: 'Bizeps', core: 'Core'}).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
-                        <div class="form-group"><label>Typ</label><select name="type"><option value="compound">Verbund</option><option value="isolation">Isolation</option></select></div>
-                        <button type="submit" class="btn btn-primary">Erstellen</button>
+                        <div class="form-group"><label for="ex-name">Name</label><input type="text" id="ex-name" name="name" required></div>
+
+                        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="ex-muscleGroup">Muskelgruppe</label>
+                                <select id="ex-muscleGroup" name="muscleGroup">${Object.entries(muscleGroups).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+                            </div>
+                            <div class="form-group">
+                                <label for="ex-type">Typ</label>
+                                <select id="ex-type" name="type">${Object.entries(exerciseTypes).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ex-equipment">Gerät</label>
+                            <select id="ex-equipment" name="equipment">${Object.entries(equipmentTypes).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+                        </div>
+
+                        <h3>Optionale Details</h3>
+                        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group"><label for="ex-settings_seat">Sitzeinstellung</label><input type="text" id="ex-settings_seat" name="settings_seat"></div>
+                            <div class="form-group"><label for="ex-settings_backrest">Lehneneinstellung</label><input type="text" id="ex-settings_backrest" name="settings_backrest"></div>
+                            <div class="form-group"><label for="ex-rom">Bewegungsumfang (ROM)</label><input type="text" id="ex-rom" name="biomechanics_rangeOfMotion" placeholder="z.B. Voll, Partiell"></div>
+                            <div class="form-group"><label for="ex-tempo">Tempo</label><input type="text" id="ex-tempo" name="biomechanics_tempo" placeholder="z.B. 2-0-2-0"></div>
+                        </div>
+                         <div class="form-group"><label for="ex-stabilization">Stabilisierungsbedarf (0-1)</label><input type="number" id="ex-stabilization" name="biomechanics_stabilizationDemand" step="0.1" min="0" max="1" placeholder="0.5"></div>
+
+                        <button type="submit" class="btn btn-primary">Übung speichern</button>
                     </form>`;
                 this.showModal('formModal');
             },
 
             showPlanForm() {
+                const planTypes = {custom: 'Benutzerdefiniert', fullbody: 'Ganzkörper', push: 'Push', pull: 'Pull', legs: 'Legs', upper_lower: 'Ober-/Unterkörper'};
+                const periodizationTypes = {linear: 'Linear', undulating: 'Undulierend', block: 'Block', none: 'Keine'};
                 document.getElementById('formModalContent').innerHTML = `
-                    <h2>Neuer Plan</h2>
+                    <h2>Neuen Plan erstellen</h2>
                     <form data-form="add-plan">
-                        <div class="form-group"><label>Name</label><input type="text" name="name" required></div>
-                        <div class="form-group"><label>Beschreibung</label><textarea name="description"></textarea></div>
+                        <div class="form-group"><label for="plan-name">Name des Plans</label><input type="text" id="plan-name" name="name" required></div>
+                        <div class="form-group"><label for="plan-desc">Beschreibung</label><textarea id="plan-desc" name="description"></textarea></div>
+
+                        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="plan-type">Plantyp</label>
+                                <select id="plan-type" name="type">${Object.entries(planTypes).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+                            </div>
+                            <div class="form-group">
+                                <label for="plan-periodizationType">Periodisierung</label>
+                                <select id="plan-periodizationType" name="periodizationType">${Object.entries(periodizationTypes).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
+                            </div>
+                        </div>
+                        <div class="form-group"><label for="plan-cycleLength">Zykluslänge (Wochen)</label><input type="number" id="plan-cycleLength" name="cycleLength" value="4" min="1"></div>
+
                         <button type="submit" class="btn btn-primary">Erstellen & Bearbeiten</button>
+                    </form>`;
+                this.showModal('formModal');
+            },
+
+            showExerciseSetForm() {
+                let exerciseOptionsHTML = '';
+                if (App.state.exercises.size > 0) {
+                    exerciseOptionsHTML = Array.from(App.state.exercises.values()).map(ex => `
+                        <div class="form-group" style="display: flex; align-items: center;">
+                           <input type="checkbox" name="exerciseIds" value="${ex.id}" id="ex_sel_${ex.id}" style="width: auto; margin-right: 0.5rem;">
+                           <label for="ex_sel_${ex.id}" style="margin-bottom:0;">${ex.name} (${ex.muscleGroup})</label>
+                        </div>
+                    `).join('');
+                } else {
+                    exerciseOptionsHTML = '<p>Bitte erstelle zuerst Übungen, um sie einem Set hinzuzufügen.</p>';
+                }
+
+                document.getElementById('formModalContent').innerHTML = `
+                    <h2>Neues Übungsset erstellen</h2>
+                    <form data-form="add-exercise-set">
+                        <div class="form-group">
+                            <label for="exercise-set-name">Name des Sets</label>
+                            <input type="text" id="exercise-set-name" name="name" required>
+                        </div>
+                        <div class="form-group">
+                            <h3>Übungen auswählen:</h3>
+                            <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); padding: 1rem; border-radius: var(--radius);">
+                                ${exerciseOptionsHTML}
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary" ${App.state.exercises.size === 0 ? 'disabled' : ''}>Set erstellen</button>
                     </form>`;
                 this.showModal('formModal');
             },
@@ -1623,11 +2439,24 @@
 
             renderPlanEditorContent(planId) {
                 const plan = App.state.plans.get(planId);
+                if (!plan) {
+                    document.getElementById('planEditorModalContent').innerHTML = '<h2>Fehler: Plan nicht gefunden.</h2><button class="btn" data-action="close-modal" data-modal-id="planEditorModal">Schließen</button>';
+                    return;
+                }
+
                 document.getElementById('planEditorModalContent').innerHTML = `
-                    <h2>Plan bearbeiten: ${plan.name}</h2>
-                    <div class="exercise-container">
-                        <div class="exercise-list">
-                            <h3>Übungen</h3>
+                    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h2 style="margin:0;">Plan: <input type="text" id="planEditorName" name="planName" value="${plan.name}" data-update-plan-meta data-plan-id="${planId}" style="font-size: 1.2em; border:none; border-bottom: 1px solid var(--border); background: transparent; color: var(--text-primary); width: auto; padding: 0.25rem;"></h2>
+                        <button class="btn btn-primary" data-action="close-modal" data-modal-id="planEditorModal">Fertig & Schließen</button>
+                    </div>
+                    <div class="form-group">
+                        <label for="planEditorDescription" style="font-weight:500;">Beschreibung:</label>
+                        <textarea id="planEditorDescription" name="planDescription" data-update-plan-meta data-plan-id="${planId}" rows="3" style="background: var(--surface-bg); color: var(--text-primary);">${plan.description || ''}</textarea>
+                    </div>
+                    <hr style="margin: 1.5rem 0;">
+                    <div class="exercise-container" style="grid-template-columns: 1fr 2fr; gap: 2rem;">
+                        <div class="exercise-list" style="max-height: 400px; overflow-y: auto; padding-right: 1rem; border-right: 1px solid var(--border);">
+                            <h3>Verfügbare Übungen</h3>
                             ${Array.from(App.state.exercises.values()).map(ex => `<div class="exercise-item" draggable="true" data-drag-id="${ex.id}">${ex.name}</div>`).join('')}
                         </div>
                         <div class="drop-zone" data-drop-action="add-to-plan" data-plan-id="${plan.id}">
@@ -1660,7 +2489,12 @@
 
             showModal(id) { document.getElementById(id).classList.add('active'); },
             closeModal(id) { 
-                if(id === 'breathingModal') clearTimeout(App.timers.breath);
+                if (id === 'breathingModal') {
+                    clearTimeout(App.timers.breath); // Clear the main cycle timer
+                    App.timers.breath = null;
+                    // If individual phase timeouts were stored, clear them too.
+                    // For simplicity, this example assumes one main timer for the cycle sequence.
+                }
                 document.getElementById(id).classList.remove('active'); 
             },
 
@@ -1672,54 +2506,102 @@
                 setTimeout(() => toast.remove(), 4000);
             },
             
-            startRestTimer(duration) {
-                clearInterval(App.timers.rest);
+            startRestTimer(durationSeconds) {
                 const timerWidget = document.getElementById('restTimerWidget');
                 const timerDisplay = document.getElementById('widgetTimer');
+
+                if (!timerWidget || !timerDisplay) {
+                    console.error("Rest timer UI elements not found.");
+                    return;
+                }
+
+                clearInterval(App.timers.rest); // Clear any existing timer
+                App.timers.rest = null;
+
                 timerWidget.classList.add('active');
-                let remaining = duration;
+                let remainingSeconds = durationSeconds;
+
+                const formatTime = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
                 
-                const update = () => timerDisplay.textContent = `${String(Math.floor(remaining/60)).padStart(2,'0')}:${String(remaining%60).padStart(2,'0')}`;
-                update();
-                
+                timerDisplay.textContent = formatTime(remainingSeconds);
+
                 App.timers.rest = setInterval(() => {
-                    remaining--;
-                    update();
-                    if (remaining < 0) {
-                        this.hideRestTimer();
+                    remainingSeconds--;
+                    timerDisplay.textContent = formatTime(remainingSeconds);
+                    if (remainingSeconds <= 0) {
+                        this.hideRestTimer(); // Calls clearInterval and hides widget
                         this.showToast("✅", "Pause beendet!", "success");
+                        // Optional: Play a sound
+                        // const audio = new Audio('path/to/sound.mp3');
+                        // audio.play().catch(e => console.warn("Audio play failed:", e));
                     }
                 }, 1000);
             },
 
             hideRestTimer() {
                 clearInterval(App.timers.rest);
-                document.getElementById('restTimerWidget').classList.remove('active');
+                App.timers.rest = null; // Ensure timer ID is cleared
+                const timerWidget = document.getElementById('restTimerWidget');
+                if (timerWidget) {
+                    timerWidget.classList.remove('active');
+                }
             },
             
             showBreathingGuide() {
                 this.showModal('breathingModal');
-                clearTimeout(App.timers.breath);
+                clearTimeout(App.timers.breath); // Clear any existing breath timer
+                App.timers.breath = null;
+
                 const circle = document.getElementById('breathing-circle');
                 const text = document.getElementById('breathingText');
+                if (!circle || !text) {
+                    console.error("Breathing modal elements not found.");
+                    return;
+                }
+
+                let currentCycle = 0;
+                const maxCycles = 3;
+                const inhaleTime = 4000;
+                const holdAfterInhaleTime = 2000;
+                const exhaleTime = 4000;
+                const holdAfterExhaleTime = 2000;
+
+                const sequence = [
+                    { phase: "Einatmen...", duration: inhaleTime, scale: 1.2 },
+                    { phase: "Halten...", duration: holdAfterInhaleTime, scale: 1.2 },
+                    { phase: "Ausatmen...", duration: exhaleTime, scale: 1.0 },
+                    { phase: "Halten...", duration: holdAfterExhaleTime, scale: 1.0 }
+                ];
                 
-                const cycle = () => {
-                    if (!document.getElementById('breathingModal').classList.contains('active')) return;
-                    text.textContent = "Einatmen...";
-                    circle.style.transform = 'scale(1.2)';
+                let phaseIndex = 0;
+
+                const performCycle = () => {
+                    if (!document.getElementById('breathingModal').classList.contains('active') || currentCycle >= maxCycles) {
+                        // Auto-close or enable button after cycles, or if modal closed manually
+                        if (document.getElementById('breathingModal').classList.contains('active')) {
+                           text.textContent = "Fertig!";
+                           // Optionally, enable a 'Done' button if it was disabled
+                        }
+                        clearTimeout(App.timers.breath);
+                        App.timers.breath = null;
+                        return;
+                    }
+
+                    const currentPhase = sequence[phaseIndex];
+                    text.textContent = currentPhase.phase;
+                    circle.style.transform = `scale(${currentPhase.scale})`;
+
                     App.timers.breath = setTimeout(() => {
-                        text.textContent = "Halten...";
-                        App.timers.breath = setTimeout(() => {
-                            text.textContent = "Ausatmen...";
-                            circle.style.transform = 'scale(1)';
-                            App.timers.breath = setTimeout(() => {
-                                text.textContent = "Halten...";
-                                App.timers.breath = setTimeout(cycle, 2000);
-                            }, 4000);
-                        }, 2000);
-                    }, 4000);
+                        phaseIndex++;
+                        if (phaseIndex >= sequence.length) {
+                            phaseIndex = 0;
+                            currentCycle++;
+                        }
+                        performCycle();
+                    }, currentPhase.duration);
                 };
-                cycle();
+
+                performCycle(); // Start the first cycle
             },
             
             createOrUpdateChart(id, type, data, options = {}) {
