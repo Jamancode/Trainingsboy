@@ -856,8 +856,27 @@
                     return state.equipment.get(equipmentId);
                 },
                 async update(equipmentId, nameString, descriptionString, state) {
-                    // Implementation will be in subsequent micro-steps
+                    const item = state.equipment.get(equipmentId);
+                    if (item) {
+                        item.name = nameString || item.name; // Keep old name if new one is not provided
+                        // If descriptionString is explicitly an empty string, update it. Otherwise, keep old if null/undefined.
+                        item.description = typeof descriptionString === 'string' ? descriptionString : item.description;
+                        await App.db.put('equipment', item);
+                        return item;
+                    }
+                    console.warn(`Equipment with ID ${equipmentId} not found for update.`);
                     return null;
+                },
+                async deleteItem(equipmentId, state) {
+                    const deletedFromState = state.equipment.delete(equipmentId);
+                    if (deletedFromState) {
+                        await App.db.delete('equipment', equipmentId);
+                        // TODO: Consider implications for exercises using this equipment.
+                        // For now, exercises will simply store the equipment ID.
+                        // UI rendering or logic might need to handle cases where an equipment ID
+                        // points to a non-existent item if not unlinked.
+                    }
+                    return deletedFromState;
                 }
             },
         
@@ -2317,6 +2336,20 @@
                                 </div>
                             </div>
                         </div>
+
+                        <div class="card" style="margin-top: 2rem;">
+                            <h3>Geräteverwaltung</h3>
+                            <button class="btn btn-primary" data-action="show-equipment-form" style="margin-bottom: 1rem;">+ Neues Gerät hinzufügen</button>
+                            <div id="equipmentListContainer">
+                                ${Array.from(App.state.equipment.values()).map(item => `
+                                    <div class="equipment-item" data-id="${item.id}" style="padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; margin-bottom: 0.5rem; background: var(--surface-bg);">
+                                        <h4>${item.name}</h4>
+                                        <p style="font-size: 0.9rem; color: var(--text-secondary);">${item.description || 'Keine Beschreibung.'}</p>
+                                        <!-- Edit/Delete buttons will be added in a later step -->
+                                    </div>
+                                `).join('') || '<p>Noch keine Geräte hinzugefügt.</p>'}
+                            </div>
+                        </div>
                     </section>`;
             },
             
@@ -2471,6 +2504,34 @@
                             <button type="submit" class="btn btn-primary" ${App.state.exercises.size === 0 ? 'disabled' : ''}>Set erstellen</button>
                         </div>
                     </form>`;
+                this.showModal('formModal');
+            },
+
+            showEquipmentForm(equipmentDataToEdit = null) {
+                const isEditMode = Boolean(equipmentDataToEdit);
+                const currentId = isEditMode ? equipmentDataToEdit.id : '';
+                const currentName = isEditMode ? equipmentDataToEdit.name : '';
+                const currentDescription = isEditMode ? equipmentDataToEdit.description : '';
+
+                const formHTML = `
+                    <form data-form="equipment-form">
+                        <h2>${isEditMode ? 'Gerät bearbeiten' : 'Neues Gerät erstellen'}</h2>
+                        ${isEditMode ? `<input type="hidden" name="equipmentId" value="${currentId}">` : ''}
+                        <div class="form-group">
+                            <label for="eq-name">Name des Geräts</label>
+                            <input type="text" id="eq-name" name="name" value="${currentName}" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="eq-desc">Beschreibung (optional)</label>
+                            <textarea id="eq-desc" name="description" rows="3">${currentDescription}</textarea>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                            <button type="button" class="btn btn-secondary" data-action="close-modal" data-modal-id="formModal">Abbrechen</button>
+                            <button type="submit" class="btn btn-primary">${isEditMode ? 'Gerät aktualisieren' : 'Gerät erstellen'}</button>
+                        </div>
+                    </form>
+                `;
+                document.getElementById('formModalContent').innerHTML = formHTML;
                 this.showModal('formModal');
             },
             
