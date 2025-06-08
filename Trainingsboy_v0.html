@@ -822,6 +822,15 @@
                     return exToUpdate;
                 },
 
+                async deleteExercise(exerciseId, state) {
+                    const deletedFromState = state.exercises.delete(exerciseId);
+                    if (deletedFromState) {
+                        await App.db.delete('exercises', exerciseId);
+                        // Logic to remove from plans/sets will be added in the next micro-task.
+                    }
+                    return deletedFromState;
+                },
+
                 calculateMuscleActivation(exerciseData) {
                     const baseActivation = {
                         primary: 1.0,
