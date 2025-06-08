@@ -278,6 +278,24 @@
                         break;
                     case 'show-exercise-form': this.ui.showExerciseForm(); break;
                     case 'show-plan-form': this.ui.showPlanForm(); break;
+                    case 'show-equipment-form': this.ui.showEquipmentForm(); break;
+                    case 'edit-equipment': // Added case for editing equipment
+                        const equipmentToEdit = this.state.equipment.get(data.id);
+                        if (equipmentToEdit) {
+                            this.ui.showEquipmentForm(equipmentToEdit);
+                        } else {
+                            this.ui.showToast('❌', 'Gerät nicht gefunden!', 'error');
+                        }
+                        break;
+                    case 'delete-equipment': // Added case for deleting equipment
+                        if (confirm('Sind Sie sicher, dass Sie dieses Gerät löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.')) {
+                            (async () => {
+                                await this.logic.equipmentManager.deleteItem(data.id, this.state);
+                                this.ui.showToast('✅', 'Gerät gelöscht!', 'success');
+                                this.render(); // Re-render current view
+                            })();
+                        }
+                        break;
                     case 'show-plan-editor': this.ui.showPlanEditor(data.planId); break;
                     case 'remove-exercise-from-plan': 
                         this.logic.plans.removeExercise(data.planId, data.exId, this.state);
@@ -327,6 +345,19 @@
                             if (this.state.ui.currentView === 'exercises') { // Re-render if on exercises page
                                 this.render();
                             }
+                            break;
+                        case 'equipment-form': // Added case for equipment form
+                            (async () => { // Use async IIFE to handle await
+                                if (data.equipmentId) { // Edit mode
+                                    await this.logic.equipmentManager.update(data.equipmentId, data.name, data.description, this.state);
+                                    this.ui.showToast('✅', 'Gerät aktualisiert!', 'success');
+                                } else { // Create mode
+                                    await this.logic.equipmentManager.create(data.name, data.description, this.state);
+                                    this.ui.showToast('✅', 'Gerät erstellt!', 'success');
+                                }
+                                this.ui.closeModal('formModal');
+                                this.render(); // Re-render current view (likely settings)
+                            })();
                             break;
                     }
                 }
@@ -703,7 +734,7 @@
                         name: data.name || 'Unbenannte Übung',
                         muscleGroup: data.muscleGroup || 'N/A',
                         type: data.type || 'compound', // Default to 'compound'
-                        equipment: data.equipment || 'barbell', // Default to 'barbell'
+                        equipmentId: data.equipmentId || null, // Expecting data.equipmentId from the form now
 
                         settings: {
                             seat: data.settings?.seat ?? data.settings_seat ?? null,
@@ -734,6 +765,98 @@
 
                     state.exercises.set(id, exercise);
                     return exercise;
+                },
+
+                async update(exerciseId, data, state) {
+                    const exToUpdate = state.exercises.get(exerciseId);
+
+                    if (!exToUpdate) {
+                        console.error(`Exercise with ID ${exerciseId} not found for update.`);
+                        return null;
+                    }
+
+                    // Direct properties
+                    if (typeof data.name === 'string') exToUpdate.name = data.name;
+                    if (typeof data.muscleGroup === 'string') exToUpdate.muscleGroup = data.muscleGroup;
+                    if (typeof data.type === 'string') exToUpdate.type = data.type;
+                    // Allow equipmentId to be set to null to remove association
+                    if (typeof data.equipmentId !== 'undefined') exToUpdate.equipmentId = data.equipmentId;
+
+
+                    // Nested 'settings' object
+                    if (data.settings && typeof data.settings === 'object') {
+                        exToUpdate.settings = { ...exToUpdate.settings, ...data.settings };
+                    }
+                    // Handle flat settings from older form structures if necessary (e.g. data.settings_seat)
+                    // This part can be removed if forms are guaranteed to send nested 'settings'
+                    if (typeof data.settings_seat !== 'undefined') exToUpdate.settings.seat = data.settings_seat;
+                    if (typeof data.settings_backrest !== 'undefined') exToUpdate.settings.backrest = data.settings_backrest;
+
+
+                    // Nested 'metrics' object - be careful with performanceHistory
+                    if (data.metrics && typeof data.metrics === 'object') {
+                        // Only update specific, editable metric fields. Don't overwrite performanceHistory.
+                        if (typeof data.metrics.personalRecord !== 'undefined') exToUpdate.metrics.personalRecord = parseFloat(data.metrics.personalRecord) || 0;
+                        if (typeof data.metrics.averageWeight !== 'undefined') exToUpdate.metrics.averageWeight = parseFloat(data.metrics.averageWeight) || 0;
+                        if (typeof data.metrics.totalVolume !== 'undefined') exToUpdate.metrics.totalVolume = parseFloat(data.metrics.totalVolume) || 0;
+                        // performanceHistory should be managed by session logic, not direct edit here.
+                    }
+                     // Handle flat PR from older form structures
+                    if (typeof data.pr?.weight !== 'undefined') exToUpdate.metrics.personalRecord = parseFloat(data.pr.weight) || 0;
+
+
+                    // Nested 'biomechanics' object
+                    if (data.biomechanics && typeof data.biomechanics === 'object') {
+                        exToUpdate.biomechanics = { ...exToUpdate.biomechanics, ...data.biomechanics };
+                    }
+                     // Handle flat biomechanics from older forms if necessary
+                    if (typeof data.biomechanics_rangeOfMotion !== 'undefined') exToUpdate.biomechanics.rangeOfMotion = data.biomechanics_rangeOfMotion;
+                    if (typeof data.biomechanics_tempo !== 'undefined') exToUpdate.biomechanics.tempo = data.biomechanics_tempo;
+                    if (typeof data.biomechanics_stabilizationDemand !== 'undefined') exToUpdate.biomechanics.stabilizationDemand = parseFloat(data.biomechanics_stabilizationDemand) || 0.5;
+
+
+                    // Persist to DB
+                    await App.db.put('exercises', exToUpdate);
+
+                    // The object in state.exercises is already updated by reference.
+                    return exToUpdate;
+                },
+
+                async deleteExercise(exerciseId, state) {
+                    const deletedFromState = state.exercises.delete(exerciseId);
+                    if (deletedFromState) {
+                        await App.db.delete('exercises', exerciseId);
+
+                        // Remove references from plans
+                        const plansToUpdate = [];
+                        state.plans.forEach(plan => {
+                            const initialLength = plan.exercises.length;
+                            plan.exercises = plan.exercises.filter(exEntry => exEntry.id !== exerciseId);
+                            if (plan.exercises.length < initialLength) {
+                                plan.lastModified = Date.now();
+                                plansToUpdate.push(App.db.put('plans', plan));
+                            }
+                        });
+                        if (plansToUpdate.length > 0) {
+                            await Promise.all(plansToUpdate);
+                        }
+
+                        // Remove references from exerciseSets
+                        const setsToUpdate = [];
+                        state.exerciseSets.forEach(exerciseSet => {
+                            const initialLength = exerciseSet.exercises.length;
+                            // Assuming exerciseSet.exercises is an array of exercise IDs (strings)
+                            exerciseSet.exercises = exerciseSet.exercises.filter(id => id !== exerciseId);
+                            if (exerciseSet.exercises.length < initialLength) {
+                                // No lastModified timestamp for exerciseSets in current model, but good to save if changed
+                                setsToUpdate.push(App.db.put('exerciseSets', exerciseSet));
+                            }
+                        });
+                        if (setsToUpdate.length > 0) {
+                            await Promise.all(setsToUpdate);
+                        }
+                    }
+                    return deletedFromState;
                 },
 
                 calculateMuscleActivation(exerciseData) {
@@ -2342,10 +2465,15 @@
                             <button class="btn btn-primary" data-action="show-equipment-form" style="margin-bottom: 1rem;">+ Neues Gerät hinzufügen</button>
                             <div id="equipmentListContainer">
                                 ${Array.from(App.state.equipment.values()).map(item => `
-                                    <div class="equipment-item" data-id="${item.id}" style="padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; margin-bottom: 0.5rem; background: var(--surface-bg);">
-                                        <h4>${item.name}</h4>
-                                        <p style="font-size: 0.9rem; color: var(--text-secondary);">${item.description || 'Keine Beschreibung.'}</p>
-                                        <!-- Edit/Delete buttons will be added in a later step -->
+                                    <div class="equipment-item" data-id="${item.id}" style="padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; margin-bottom: 0.5rem; background: var(--surface-bg); display: flex; justify-content: space-between; align-items: center;">
+                                        <div>
+                                            <h4>${item.name}</h4>
+                                            <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 0;">${item.description || 'Keine Beschreibung.'}</p>
+                                        </div>
+                                        <div style="display: flex; gap: 0.5rem;">
+                                            <button class="btn btn-secondary" data-action="edit-equipment" data-id="${item.id}" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Bearbeiten</button>
+                                            <button class="btn btn-danger" data-action="delete-equipment" data-id="${item.id}" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Löschen</button>
+                                        </div>
                                     </div>
                                 `).join('') || '<p>Noch keine Geräte hinzugefügt.</p>'}
                             </div>
@@ -2568,8 +2696,9 @@
                                 return `<div class="exercise-item" data-id="${ex.id}">
                                     <span>${exData.name}</span>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <input type="number" value="${ex.sets}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="sets" style="width: 60px;"> S
-                                        <input type="text" value="${ex.reps}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="reps" style="width: 80px;"> Wdh
+                                        <input type="number" value="${ex.sets}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="sets" style="width: 60px;" placeholder="Sätze"> S
+                                        <input type="text" value="${ex.reps}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="reps" style="width: 80px;" placeholder="Wdh"> Wdh
+                                        <input type="number" value="${ex.rest || 60}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="rest" style="width: 70px;" placeholder="Pause"> Sek
                                         <button class="btn btn-danger" style="padding:0.2rem 0.4rem" data-action="remove-exercise-from-plan" data-plan-id="${plan.id}" data-ex-id="${ex.id}">X</button>
                                     </div>
                                 </div>`;
