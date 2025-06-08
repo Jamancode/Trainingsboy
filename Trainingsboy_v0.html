@@ -826,7 +826,35 @@
                     const deletedFromState = state.exercises.delete(exerciseId);
                     if (deletedFromState) {
                         await App.db.delete('exercises', exerciseId);
-                        // Logic to remove from plans/sets will be added in the next micro-task.
+
+                        // Remove references from plans
+                        const plansToUpdate = [];
+                        state.plans.forEach(plan => {
+                            const initialLength = plan.exercises.length;
+                            plan.exercises = plan.exercises.filter(exEntry => exEntry.id !== exerciseId);
+                            if (plan.exercises.length < initialLength) {
+                                plan.lastModified = Date.now();
+                                plansToUpdate.push(App.db.put('plans', plan));
+                            }
+                        });
+                        if (plansToUpdate.length > 0) {
+                            await Promise.all(plansToUpdate);
+                        }
+
+                        // Remove references from exerciseSets
+                        const setsToUpdate = [];
+                        state.exerciseSets.forEach(exerciseSet => {
+                            const initialLength = exerciseSet.exercises.length;
+                            // Assuming exerciseSet.exercises is an array of exercise IDs (strings)
+                            exerciseSet.exercises = exerciseSet.exercises.filter(id => id !== exerciseId);
+                            if (exerciseSet.exercises.length < initialLength) {
+                                // No lastModified timestamp for exerciseSets in current model, but good to save if changed
+                                setsToUpdate.push(App.db.put('exerciseSets', exerciseSet));
+                            }
+                        });
+                        if (setsToUpdate.length > 0) {
+                            await Promise.all(setsToUpdate);
+                        }
                     }
                     return deletedFromState;
                 },
@@ -2668,8 +2696,9 @@
                                 return `<div class="exercise-item" data-id="${ex.id}">
                                     <span>${exData.name}</span>
                                     <div style="display:flex; gap:0.5rem; align-items:center;">
-                                        <input type="number" value="${ex.sets}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="sets" style="width: 60px;"> S
-                                        <input type="text" value="${ex.reps}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="reps" style="width: 80px;"> Wdh
+                                        <input type="number" value="${ex.sets}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="sets" style="width: 60px;" placeholder="Sätze"> S
+                                        <input type="text" value="${ex.reps}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="reps" style="width: 80px;" placeholder="Wdh"> Wdh
+                                        <input type="number" value="${ex.rest || 60}" data-update-plan-ex data-plan-id="${plan.id}" data-ex-id="${ex.id}" data-field="rest" style="width: 70px;" placeholder="Pause"> Sek
                                         <button class="btn btn-danger" style="padding:0.2rem 0.4rem" data-action="remove-exercise-from-plan" data-plan-id="${plan.id}" data-ex-id="${ex.id}">X</button>
                                     </div>
                                 </div>`;
